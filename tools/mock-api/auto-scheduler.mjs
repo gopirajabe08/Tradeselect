@@ -144,11 +144,13 @@ export function autoSchedulerStatus() {
   const finishedToday = state.instances.filter((i) =>
     i.status === 'STOPPED' && i.startedAt.slice(0, 10) === today
   );
-  const upcoming = CATALOG.filter((s) =>
-    s.window &&
-    !windowFinished(s.window) &&
-    !alreadyRanToday(state, s.code)
-  );
+  const upcoming = isTradingDay()
+    ? CATALOG.filter((s) =>
+        s.window &&
+        !windowFinished(s.window) &&
+        !alreadyRanToday(state, s.code)
+      )
+    : [];
 
   return {
     enabled: process.env.AUTO_SCHEDULER_ENABLED === 'true',
