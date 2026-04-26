@@ -14,7 +14,7 @@ const TEMPLATES: Template[] = [
     code: `# Moving Average Crossover Strategy
 # Buys when fast SMA crosses above slow SMA; sells on opposite cross.
 
-from tradeauto import Strategy
+from tradeselect import Strategy
 
 class MACrossover(Strategy):
     def initialize(self):
@@ -40,7 +40,7 @@ class MACrossover(Strategy):
     label: 'RSI Mean-Reversion',
     code: `# RSI Mean-Reversion Strategy
 
-from tradeauto import Strategy
+from tradeselect import Strategy
 
 class RSIReversion(Strategy):
     def initialize(self):
@@ -61,7 +61,7 @@ class RSIReversion(Strategy):
     label: 'ATR Volatility Trend',
     code: `# ATR Volatility Trend Strategy
 
-from tradeauto import Strategy
+from tradeselect import Strategy
 
 class ATRTrend(Strategy):
     def initialize(self):
@@ -91,7 +91,7 @@ class ATRTrend(Strategy):
 # Available: self.sma, self.ema, self.rsi, self.atr, self.bb, self.macd
 #            self.buy(quantity, reason=''), self.sell(quantity, reason='')
 
-from tradeauto import Strategy
+from tradeselect import Strategy
 
 class MyStrategy(Strategy):
     def initialize(self):
@@ -116,7 +116,7 @@ export default function CodeEditor() {
   };
 
   const onSave = () => {
-    localStorage.setItem(`tradeauto_strategy_${templateKey}`, code);
+    localStorage.setItem(`tradeselect_strategy_${templateKey}`, code);
     message.success(`Saved ${templateKey} to local storage`);
   };
 

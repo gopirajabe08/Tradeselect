@@ -22,7 +22,7 @@ export default function MarketplaceHNI() {
             setSelected({
               strategyCode: String(row.key ?? 'UNKNOWN'),
               strategyName: title,
-              strategyType: 'tradeauto',
+              strategyType: 'tradeselect',
             });
             setOpen(true);
           }}

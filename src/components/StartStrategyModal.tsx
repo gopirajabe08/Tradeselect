@@ -152,7 +152,7 @@ export function StartStrategyModal({
       ) : (
         <Form form={form} layout="vertical" requiredMark={false}>
           <Form.Item
-            label={<>Algorithm <Tooltip title="Standard indicator-based logic provided by TradeAuto"><InfoCircleOutlined /></Tooltip></>}
+            label={<>Algorithm <Tooltip title="Standard indicator-based logic provided by TradeSelect"><InfoCircleOutlined /></Tooltip></>}
             name="algoKey"
             rules={[{ required: true }]}
           >

@@ -6,7 +6,7 @@ import { defineConfig } from '@umijs/max';
 // build/python (duplicate). The stub pages still exist but aren't routed or
 // shown in the sider.
 export default defineConfig({
-  title: 'TradeAuto',
+  title: 'TradeSelect',
   favicons: ['/favicon.svg'],
   antd: {
     configProvider: {

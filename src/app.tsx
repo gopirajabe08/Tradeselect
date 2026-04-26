@@ -23,7 +23,7 @@ export async function getInitialState(): Promise<{
 
 export const layout: RunTimeLayoutConfig = ({ initialState }) => {
   return {
-    title: 'TradeAuto',
+    title: 'TradeSelect',
     logo: <Logo />,
     menu: { locale: false },
     layout: 'mix',

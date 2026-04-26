@@ -22,7 +22,7 @@ export default function BrokerLogin() {
         <div className={styles.loginCol}>
           <div className={styles.card} style={{ width: 'min(34rem, 100%)' }}>
             <Title level={3}>Connect your broker</Title>
-            <Text type="secondary">Choose a broker to authorize order execution from TradeAuto.</Text>
+            <Text type="secondary">Choose a broker to authorize order execution from TradeSelect.</Text>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 12, marginTop: 24 }}>
               {BROKERS.map((b) => (
                 <Button key={b.code} icon={<ApiOutlined />} size="large" style={{ textAlign: 'left' }}>

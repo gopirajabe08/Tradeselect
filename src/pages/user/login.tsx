@@ -111,7 +111,7 @@ export default function LoginPage() {
             </div>
 
             <div className={styles.signupRow}>
-              New to TradeAuto?<Link to="/user/register">Sign Up</Link>
+              New to TradeSelect?<Link to="/user/register">Sign Up</Link>
             </div>
 
             {demoForRegion && (
@@ -141,9 +141,9 @@ export default function LoginPage() {
 
         <div className={styles.featureCol}>
           <div className={styles.logoRow}>
-            <div className={styles.logoText}>TradeAuto</div>
+            <div className={styles.logoText}>TradeSelect</div>
           </div>
-          <div className={styles.welcome}>TradeAuto</div>
+          <div className={styles.welcome}>TradeSelect</div>
           <div className={styles.unleash}>
             Unleash the potential of your investment in the capital market with novel algorithmic trading.
           </div>

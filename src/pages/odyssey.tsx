@@ -22,7 +22,7 @@ export default function Odyssey() {
             setSelected({
               strategyCode: String(row.key ?? 'UNKNOWN'),
               strategyName: title,
-              strategyType: 'tradeauto',
+              strategyType: 'tradeselect',
             });
             setOpen(true);
           }}
@@ -36,7 +36,7 @@ export default function Odyssey() {
   return (
     <>
       <LiveApiTable
-        title="TradeAuto Strategies"
+        title="TradeSelect Strategies"
         fetchColumns={getStrategyColumns}
         fetchData={(p) => getStrategy(p)}
         customRender={customRender}

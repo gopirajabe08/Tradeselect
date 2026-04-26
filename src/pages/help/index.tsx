@@ -5,7 +5,7 @@ import { SearchOutlined, QuestionCircleOutlined } from '@ant-design/icons';
 const { Title, Text } = Typography;
 
 const TOPICS = [
-  { title: 'Getting Started', items: ['What is TradeAuto?', 'Creating your first strategy', 'Connecting a broker'] },
+  { title: 'Getting Started', items: ['What is TradeSelect?', 'Creating your first strategy', 'Connecting a broker'] },
   { title: 'Strategies', items: ['Saved strategies', 'Backtesting basics', 'Execution parameters'] },
   { title: 'Billing', items: ['Plans & pricing', 'Pay-as-you-go', 'Refunds'] },
   { title: 'Broking', items: ['Supported brokers', 'Broker credentials', 'Order modes'] },

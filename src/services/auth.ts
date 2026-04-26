@@ -12,7 +12,7 @@ type Credential = {
   user: AuthUser;
 };
 
-const STORAGE_KEY = 'tradeauto_user';
+const STORAGE_KEY = 'tradeselect_user';
 
 export const DEMO_CREDENTIALS: Credential[] = [
   {
@@ -23,7 +23,7 @@ export const DEMO_CREDENTIALS: Credential[] = [
       name: 'Demo Trader',
       mobile: '9999999999',
       countryCode: '+91',
-      email: 'demo.in@tradeauto.local',
+      email: 'demo.in@tradeselect.local',
     },
   },
   {
@@ -34,7 +34,7 @@ export const DEMO_CREDENTIALS: Credential[] = [
       name: 'US Trader',
       mobile: '5551234567',
       countryCode: '+1',
-      email: 'demo.us@tradeauto.local',
+      email: 'demo.us@tradeselect.local',
     },
   },
 ];

@@ -54,7 +54,7 @@ export default function Marketplace() {
               setSelected({
                 strategyCode: code,
                 strategyName: title,
-                strategyType: 'tradeauto',
+                strategyType: 'tradeselect',
               });
               setOpen(true);
             }}

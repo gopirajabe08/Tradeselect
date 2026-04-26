@@ -33,7 +33,7 @@ export default function Register() {
                 { key: 'row', label: 'Rest of the World' },
               ]}
             />
-            <h3 className={styles.heading}>Create your TradeAuto account</h3>
+            <h3 className={styles.heading}>Create your TradeSelect account</h3>
             <Form form={form} layout="vertical" onFinish={onFinish} requiredMark={false}>
               <Form.Item name="name" rules={[{ required: true, message: 'Full name required' }]}>
                 <Input className={styles.fieldInput} placeholder="Full Name" />
@@ -57,8 +57,8 @@ export default function Register() {
           </div>
         </div>
         <div className={styles.featureCol}>
-          <div className={styles.logoRow}><div className={styles.logoText}>TradeAuto</div></div>
-          <Title level={2} style={{ margin: '8px 0', color: '#213654' }}>Join TradeAuto</Title>
+          <div className={styles.logoRow}><div className={styles.logoText}>TradeSelect</div></div>
+          <Title level={2} style={{ margin: '8px 0', color: '#213654' }}>Join TradeSelect</Title>
           <div className={styles.unleash}>
             Start automating your trades with algorithmic precision. Join today.
           </div>

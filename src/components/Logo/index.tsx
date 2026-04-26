@@ -17,6 +17,6 @@ export const Logo: React.FC = () => (
     >
       T
     </div>
-    <span style={{ color: '#fff', fontWeight: 600, letterSpacing: 0.3 }}>TradeAuto</span>
+    <span style={{ color: '#fff', fontWeight: 600, letterSpacing: 0.3 }}>TradeSelect</span>
   </div>
 );
