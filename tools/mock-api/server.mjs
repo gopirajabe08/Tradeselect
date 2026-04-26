@@ -546,12 +546,9 @@ async function main() {
 
   app.listen(PORT, () => {
     console.log(`[mock] listening on http://localhost:${PORT}`);
-    console.log(`[mock] sim endpoints:`);
-    console.log(`  GET  /_sim/status            simulator status`);
-    console.log(`  GET  /_sim/instruments       available instruments`);
-    console.log(`  POST /api/_sim/strategy/start   { strategyCode, instrument, capital, mode }`);
-    console.log(`  POST /api/_sim/strategy/stop/:id`);
-    console.log(`  GET  /api/_sim/strategy/instances`);
+    const sched = autoSchedulerStatus();
+    console.log(`[boot] AUTO_SCHEDULER_ENABLED=${sched.enabled} | isTradingDay=${sched.isTradingDay} | today=${sched.today} | nowIST=${sched.nowIST} | upcoming=${sched.upcomingToday.length}`);
+    console.log(`[boot] TELEGRAM=${process.env.TELEGRAM_BOT_TOKEN ? 'configured' : 'OFF (notifications silent)'}`);
   });
 }
 

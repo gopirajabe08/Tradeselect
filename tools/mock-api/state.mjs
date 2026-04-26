@@ -6,6 +6,7 @@ import fs from 'node:fs/promises';
 import fsSync from 'node:fs';
 import path from 'node:path';
 import url from 'node:url';
+import { closePositionWithCosts } from './positions.mjs';
 
 const __dirname = path.dirname(url.fileURLToPath(import.meta.url));
 export const STATE_PATH = path.join(__dirname, '_state.json');
@@ -171,7 +172,7 @@ export async function stopInstance(id) {
   if (inst.position) {
     const price = s.prices[inst.instrument];
     if (typeof price === 'number') {
-      const { closePositionWithCosts } = await import('./simulator.mjs');
+      // Synchronous now — no await boundary, no race with concurrent ticks.
       closePositionWithCosts(s, inst, price, 'User stopped — auto-exit');
     }
   }

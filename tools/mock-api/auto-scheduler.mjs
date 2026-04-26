@@ -9,26 +9,35 @@ import { CATALOG, isInWindow, nowISTHHMM, nowISTDayOfWeek } from './catalog.mjs'
 import { getState, save, createInstance, stopInstance } from './state.mjs';
 import { notifyLaunched, notifyClosed, notifyDailySummary } from './telegram.mjs';
 
-// 2026 NSE equity-segment holiday list (Republic Day, Holi, Good Friday, etc.).
-// Format: 'YYYY-MM-DD'. NSE publishes this annually; refresh each Dec.
-// If the date isn't in here, we treat it as a normal trading day.
+// NSE equity-segment trading holidays. **VERIFY THIS LIST BEFORE TRADING.**
 // Source: https://www.nseindia.com/resources/exchange-communication-holidays
+// NOTE: lunar-calendar holidays (Eid, Holi, Diwali, Ram Navami) shift each
+// year; refresh in December. Dates below are best-effort 2026 estimates and
+// must be cross-checked against the official NSE annual circular.
 const NSE_HOLIDAYS_2026 = new Set([
   '2026-01-26', // Republic Day
-  '2026-03-03', // Holi
-  '2026-03-31', // Eid-ul-Fitr
+  '2026-03-04', // Holi
+  '2026-03-20', // Eid-ul-Fitr (lunar — verify)
+  '2026-03-26', // Ram Navami
+  '2026-03-31', // Mahavir Jayanti
   '2026-04-03', // Good Friday
   '2026-04-14', // Dr. Ambedkar Jayanti
   '2026-05-01', // Maharashtra Day
-  '2026-05-27', // Eid-ul-Adha
-  '2026-08-15', // Independence Day
-  '2026-08-25', // Ganesh Chaturthi
+  '2026-05-27', // Eid-ul-Adha (lunar — verify)
+  '2026-06-25', // Muharram (lunar — verify)
+  '2026-08-26', // Ganesh Chaturthi
   '2026-10-02', // Gandhi Jayanti
-  '2026-10-21', // Dussehra
-  '2026-11-09', // Diwali Laxmi Pujan (Muhurat trading)
+  '2026-10-20', // Dussehra
+  '2026-11-09', // Diwali Laxmi Pujan (regular session closed; muhurat-only)
   '2026-11-10', // Balipratipada
+  '2026-11-24', // Guru Nanak Jayanti
   '2026-12-25', // Christmas
 ]);
+
+// Min minutes that must remain in a window before auto-launching. Below
+// this, the strategy would barely place one trade and immediately get force-
+// exited at window-close, eating both legs of costs for nothing.
+const MIN_WINDOW_REMAINING_MIN = 5;
 
 function nowISTDate() {
   const istMs = Date.now() + 330 * 60_000;
@@ -49,7 +58,15 @@ function isTradingDay() {
 // Has the given window already passed for today?
 function windowFinished(w) {
   if (!w) return false;
-  return nowISTHHMM() > w.end;
+  return nowISTHHMM() >= w.end;
+}
+
+// Minutes until window-end. Negative if already past.
+function minutesRemainingInWindow(w) {
+  if (!w) return Infinity;
+  const [eh, em] = w.end.split(':').map(Number);
+  const [nh, nm] = nowISTHHMM().split(':').map(Number);
+  return (eh * 60 + em) - (nh * 60 + nm);
 }
 
 // Does this strategy already have a RUNNING instance launched today?
@@ -72,77 +89,95 @@ function alreadyRanToday(state, strategyCode) {
   );
 }
 
+let isRunning = false;
 let lastTickedAt = 0;
 
 export async function autoSchedulerTick() {
-  // Cheap rate-limit: don't run more than once every 30s even if called
-  // more often. The simulator's 2s tick loop is far too frequent.
+  // Re-entrancy guard. setInterval ticks every 2s, but this function's
+  // awaits (createInstance → save) can take seconds. A boolean lock is
+  // stronger than a time-based one because it survives slow runs.
+  if (isRunning) return;
   const now = Date.now();
   if (now - lastTickedAt < 30_000) return;
+  isRunning = true;
   lastTickedAt = now;
 
-  if (!isTradingDay()) return;
+  try {
+    if (!isTradingDay()) return;
 
-  const state = getState();
-  const launched = [];
-  const closed = [];
+    const state = getState();
+    const launched = [];
+    const closed = [];
+    const today = nowISTDate();
 
-  for (const s of CATALOG) {
-    // Strategies without a window run all day — skip auto-launch (those
-    // need explicit user opt-in since they consume capital indefinitely).
-    if (!s.window) continue;
+    for (const s of CATALOG) {
+      try {
+        // Strategies without a window run all day — skip auto-launch.
+        if (!s.window) continue;
+        // Window already passed today.
+        if (windowFinished(s.window)) continue;
+        // Less than N minutes remaining — don't bother launching for a single
+        // round-trip that will eat costs without time to recover them.
+        if (minutesRemainingInWindow(s.window) < MIN_WINDOW_REMAINING_MIN) continue;
+        // Already ran (running or stopped) today.
+        if (alreadyRanToday(state, s.code)) continue;
 
-    // Window already passed today → don't launch a new one.
-    if (windowFinished(s.window)) continue;
-
-    // Already ran (running or stopped) today → don't re-launch.
-    if (alreadyRanToday(state, s.code)) continue;
-
-    // Window is upcoming or active. Launch with the catalog's minimum
-    // capital. Paper mode means no real money risk; capital is just
-    // position-sizing anchor for the strategy.
-    const inst = await createInstance({
-      strategyCode: s.code,
-      strategyName: s.name,
-      strategyType: s.category ?? 'tradeauto',
-      algoKey: s.algoKey,
-      instrument: s.instrument,
-      exchange: 'NSE_EQ', // catalog has display strings; backend uses code
-      capital: s.minimumCapital,
-      mode: 'PT',
-      window: s.window,
-      scheduleEnabled: true,
-    });
-    launched.push({ code: s.code, instanceId: inst.id });
-  }
-
-  // End-of-day cleanup: after 15:35 IST, any RUNNING instance gets
-  // stopped (closes any open position via shared cost-aware helper).
-  if (nowISTHHMM() >= '15:35') {
-    for (const inst of state.instances) {
-      if (inst.status !== 'RUNNING') continue;
-      const stopped = await stopInstance(inst.id);
-      closed.push({
-        code: inst.strategyCode,
-        instanceId: inst.id,
-        realizedPnl: stopped?.realizedPnl ?? 0,
-      });
+        const inst = await createInstance({
+          strategyCode: s.code,
+          strategyName: s.name,
+          strategyType: s.category ?? 'tradeauto',
+          algoKey: s.algoKey,
+          instrument: s.instrument,
+          exchange: 'NSE_EQ',
+          capital: s.minimumCapital,
+          mode: 'PT',
+          window: s.window,
+          scheduleEnabled: true,
+        });
+        launched.push({ code: s.code, instanceId: inst.id });
+      } catch (err) {
+        // Per-strategy launch failure must not abort the whole batch.
+        console.error(`[auto-scheduler] launch failed for ${s.code}:`, err.message);
+      }
     }
-  }
 
-  if (launched.length || closed.length) {
-    console.log(`[auto-scheduler] ${nowISTHHMM()} IST: launched=${launched.length} closed=${closed.length}`,
-      launched.length ? `→ ${launched.map((l) => `${l.code}#${l.instanceId}`).join(',')}` : '',
-      closed.length ? `← ${closed.map((c) => `${c.code}#${c.instanceId}`).join(',')}` : '',
-    );
-    await save();
-    // Fire-and-forget Telegram pings; failure here must NOT fail the tick.
-    notifyLaunched(launched).catch(() => {});
-    notifyClosed(closed).catch(() => {});
-  }
+    // End-of-day cleanup: after 15:35 IST, stop only TODAY's auto-launched
+    // instances (scheduleEnabled=true AND startedAt is today). Manual / pre-
+    // existing / multi-day instances are left untouched.
+    if (nowISTHHMM() >= '15:35') {
+      for (const inst of state.instances) {
+        if (inst.status !== 'RUNNING') continue;
+        if (!inst.scheduleEnabled) continue;
+        if (inst.startedAt.slice(0, 10) !== today) continue;
+        try {
+          const stopped = await stopInstance(inst.id);
+          closed.push({
+            code: inst.strategyCode,
+            instanceId: inst.id,
+            realizedPnl: stopped?.realizedPnl ?? 0,
+          });
+        } catch (err) {
+          console.error(`[auto-scheduler] EOD stop failed for inst#${inst.id}:`, err.message);
+        }
+      }
+    }
 
-  // Daily summary at 15:40 IST (after EOD close, once per day).
-  await maybeSendDailySummary(state);
+    if (launched.length || closed.length) {
+      console.log(`[auto-scheduler] ${nowISTHHMM()} IST: launched=${launched.length} closed=${closed.length}`,
+        launched.length ? `→ ${launched.map((l) => `${l.code}#${l.instanceId}`).join(',')}` : '',
+        closed.length ? `← ${closed.map((c) => `${c.code}#${c.instanceId}`).join(',')}` : '',
+      );
+      await save();
+      notifyLaunched(launched).catch(() => {});
+      notifyClosed(closed).catch(() => {});
+    }
+
+    // Daily summary at 15:40 IST (after EOD close, once per day).
+    await maybeSendDailySummary(state);
+  } finally {
+    // Release re-entrancy lock no matter what.
+    isRunning = false;
+  }
 }
 
 let lastSummarySentDate = null;

@@ -12,6 +12,8 @@ import { STRATEGIES, resolveAlgo } from './strategies.mjs';
 import { refreshLivePrices, getDataSource } from './marketdata.mjs';
 import { isInWindow } from './catalog.mjs';
 import { legCosts } from './costs.mjs';
+import { pushTrade, closePositionWithCosts } from './positions.mjs';
+import { autoSchedulerTick } from './auto-scheduler.mjs';
 
 const TICK_MS = 2000;
 const DT_PER_TICK = 1 / (252 * 6.5 * 60 * 30);
@@ -52,79 +54,8 @@ function advancePrices(state) {
   }
 }
 
-// Trim trades array to keep _state.json from unbounded growth that would
-// slow per-tick saves. 5000 trades ≈ 2MB serialized — comfortably below
-// per-tick save latency thresholds, and well past anything one user trades.
-const MAX_TRADES = 5000;
-
-// All trades go through this. NewTrade is now a pure recorder — caller
-// computes pnl + costs explicitly so semantics differ between entry (no
-// realization yet) and exit (round-trip net realized).
-//   - BUY trade: caller passes pnl=0; entry-leg costs are still recorded
-//     on the trade for transparency, but realizedPnl is unchanged.
-//   - SELL trade: caller passes pnl = round-trip NET (gross - both legs'
-//     costs). That number flows into realizedPnl.
-function newTrade(state, { instanceId, instrument, side, price, quantity, reason, pnl, costs, grossPnl = 0 }) {
-  const fillPrice = costs?.fillPrice ?? Number(price.toFixed(2));
-  const trade = {
-    id: state.nextTradeId++,
-    instanceId,
-    instrument,
-    side,
-    price: Number(price.toFixed(2)),
-    fillPrice,
-    quantity,
-    value: Number((fillPrice * quantity).toFixed(2)),
-    pnl: Number(pnl.toFixed(2)),                  // net (round-trip) on SELL; 0 on BUY
-    grossPnl: Number(grossPnl.toFixed(2)),        // pre-cost gross on SELL; 0 on BUY
-    costs: costs ? {
-      brokerage: costs.brokerage,
-      stt: costs.stt,
-      exchangeTxn: costs.exchangeTxn,
-      sebi: costs.sebi,
-      stampDuty: costs.stampDuty,
-      gst: costs.gst,
-      slippage: costs.slippage,
-      total: costs.total,
-    } : null,
-    reason,
-    timestamp: new Date().toISOString(),
-  };
-  state.trades.push(trade);
-  if (state.trades.length > MAX_TRADES) {
-    state.trades.splice(0, state.trades.length - MAX_TRADES);
-  }
-  return trade;
-}
-
-// Shared close-position logic. Both the in-tick exit (window close, SELL
-// signal) and stopInstance() route through here so cost accounting is
-// consistent. Mutates inst (clears position, updates pnl), pushes a trade
-// to state.trades, returns the trade for caller to track tradeIds.
-export function closePositionWithCosts(state, inst, price, reason) {
-  const grossPnl = (price - inst.position.entryPrice) * inst.position.quantity;
-  const sellCosts = legCosts('SELL', price, inst.position.quantity);
-  const entryCost = inst.position.entryCost ?? 0;
-  const netRoundTrip = Number((grossPnl - sellCosts.total - entryCost).toFixed(2));
-
-  const trade = newTrade(state, {
-    instanceId: inst.id,
-    instrument: inst.instrument,
-    side: 'SELL',
-    price,
-    quantity: inst.position.quantity,
-    reason,
-    pnl: netRoundTrip,
-    grossPnl,
-    costs: sellCosts,
-  });
-
-  inst.tradeIds.push(trade.id);
-  inst.realizedPnl = Number((inst.realizedPnl + netRoundTrip).toFixed(2));
-  inst.position = null;
-  inst.unrealizedPnl = 0;
-  return trade;
-}
+// Trade recording / position-close lifecycle now lives in positions.mjs
+// (extracted to break the simulator ↔ state circular import).
 
 function recordPnl(state, inst, price) {
   const arr = state.pnlHistory[inst.id] ?? (state.pnlHistory[inst.id] = []);
@@ -173,7 +104,7 @@ function tickInstance(state, inst) {
     const positionValue = inst.capital * 0.1;
     const quantity = Math.max(1, Math.floor(positionValue / price));
     const buyCosts = legCosts('BUY', price, quantity);
-    const trade = newTrade(state, {
+    const trade = pushTrade(state, {
       instanceId: inst.id, instrument: inst.instrument,
       side: 'BUY', price, quantity, reason: signal.reason,
       pnl: 0,           // no realization on entry; costs carry on position
@@ -210,13 +141,11 @@ async function tick() {
   state.lastTickAt = new Date().toISOString();
   try { await save(); } catch (e) { console.error('[sim] save failed:', e.message); }
 
-  // Auto-scheduler runs every 30s (rate-limited inside autoSchedulerTick).
+  // Auto-scheduler is rate-limited internally to ~30s.
   // Gated by env so we can deploy the code path without it firing.
   if (process.env.AUTO_SCHEDULER_ENABLED === 'true') {
-    try {
-      const { autoSchedulerTick } = await import('./auto-scheduler.mjs');
-      await autoSchedulerTick();
-    } catch (e) { console.error('[auto-scheduler] err:', e.message); }
+    try { await autoSchedulerTick(); }
+    catch (e) { console.error('[auto-scheduler] err:', e.message); }
   }
 }
 
