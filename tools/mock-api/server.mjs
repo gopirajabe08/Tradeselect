@@ -30,7 +30,20 @@ const PORT = Number(process.env.MOCK_PORT ?? 4000);
 // ---------- Replay layer ----------
 
 async function loadRecords() {
-  const files = (await fs.readdir(API_DIR)).filter((f) => f.endsWith('.jsonl'));
+  // Replay layer is optional. Production deployments don't ship the captured
+  // fixtures (`_capture/api/*.jsonl`) — those exist only for local dev and
+  // are gitignored. If the dir is missing, skip replay entirely; the trading
+  // layer (the only thing that matters in prod) takes over for everything.
+  let files;
+  try {
+    files = (await fs.readdir(API_DIR)).filter((f) => f.endsWith('.jsonl'));
+  } catch (err) {
+    if (err.code === 'ENOENT') {
+      console.log(`[mock] no replay fixtures at ${API_DIR} — replay layer disabled (this is normal in production)`);
+      return [];
+    }
+    throw err;
+  }
   const records = [];
   for (const f of files) {
     const body = await fs.readFile(path.join(API_DIR, f), 'utf8');
