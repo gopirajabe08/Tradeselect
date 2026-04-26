@@ -8,7 +8,7 @@ set -e
 APP_DIR="/opt/tradeselect/app"
 LOG="/var/log/tradeselect/deploy.log"
 
-log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" | tee -a "$LOG"; }
+log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" | sudo tee -a "$LOG" >/dev/null; echo "[$(date '+%H:%M:%S')] $1"; }
 
 log "═══ deploy started ═══"
 
