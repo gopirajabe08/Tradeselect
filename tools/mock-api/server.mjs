@@ -246,7 +246,8 @@ async function main() {
 
   // --- Root + health + meta ---
 
-  app.get('/', (_req, res) => {
+  // Diagnostic endpoint moved off `/` so the UI can own the root path.
+  app.get('/_endpoints', (_req, res) => {
     const endpoints = Array.from(table.values())
       .map((b) => ({ method: b.method, path: b.path, samples: b.samples.length }))
       .sort((a, b) => a.path.localeCompare(b.path));
