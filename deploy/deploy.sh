@@ -25,11 +25,9 @@ else
     log "no dep change"
 fi
 
-# build frontend if src/ or .umirc.ts changed (or first time)
-if git diff HEAD~1 --name-only | grep -qE "src/|.umirc\.ts" || [ ! -d "$APP_DIR/dist" ]; then
-    log "frontend changed — building"
-    sudo -u tradeselect npm run build --silent || log "build skipped (no build script)"
-fi
+# Frontend is built LOCALLY on the developer's Mac and rsync'd to the server
+# via deploy/upload-ui.sh. The 1GB EC2 instance OOMs on `max build`. Server-
+# side build is intentionally skipped.
 
 # Paper-mode: always restart on deploy. New code matters more than zero-
 # downtime, since no real broker orders are at risk. (Switch to off-hours-

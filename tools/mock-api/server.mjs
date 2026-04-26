@@ -13,6 +13,7 @@
 
 import express from 'express';
 import fs from 'node:fs/promises';
+import fsSync from 'node:fs';
 import path from 'node:path';
 import url from 'node:url';
 import { load as loadState, listInstances, listTrades, createInstance, stopInstance, deleteInstance, INSTRUMENTS, currentPrice, getState, priceHistory, pnlHistory, saveUserProfile, userProfile } from './state.mjs';
@@ -255,6 +256,21 @@ async function main() {
   app.get('/_sim/auto-scheduler', (_req, res) => {
     res.json(autoSchedulerStatus());
   });
+
+  // Serve the built React UI for non-API paths. Only hits if request hasn't
+  // matched any of the simulator/replay routes above. SPA fallback below
+  // handles client-side routes like /portfolio, /marketplace, etc.
+  const DIST_DIR = path.resolve(ROOT, 'dist');
+  try {
+    if (fsSync.existsSync(DIST_DIR)) {
+      app.use(express.static(DIST_DIR, { index: false }));
+      console.log(`[mock] serving UI from ${DIST_DIR}`);
+    } else {
+      console.log(`[mock] no UI dist/ at ${DIST_DIR} — UI routes will 404 (run "npm run build" locally and rsync to server)`);
+    }
+  } catch (err) {
+    console.error('[mock] static UI serve setup failed:', err.message);
+  }
 
   app.get('/_sim/status', (_req, res) => {
     const s = getState();
@@ -527,6 +543,15 @@ async function main() {
     if (pathname.startsWith('/api/')) pathname = '/prod' + pathname.slice(4);
     const bucket = table.get(`${req.method} ${pathname}`);
     if (!bucket) {
+      // SPA fallback: any unmatched GET that isn't an API path → serve index.html
+      // so React Router can handle client-side routes (/portfolio, /marketplace).
+      if (req.method === 'GET' && !pathname.startsWith('/api/') && !pathname.startsWith('/prod/') && !pathname.startsWith('/_sim/')) {
+        const indexPath = path.join(ROOT, 'dist', 'index.html');
+        if (fsSync.existsSync(indexPath)) {
+          res.sendFile(indexPath);
+          return;
+        }
+      }
       res.status(404).json({
         mockError: 'endpoint not recorded',
         method: req.method,
