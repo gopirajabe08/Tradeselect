@@ -11,6 +11,7 @@ import { getState, save, INSTRUMENTS, MAX_HISTORY, MAX_PNL_POINTS } from './stat
 import { STRATEGIES, resolveAlgo } from './strategies.mjs';
 import { refreshLivePrices, getDataSource } from './marketdata.mjs';
 import { isInWindow } from './catalog.mjs';
+import { legCosts } from './costs.mjs';
 
 const TICK_MS = 2000;
 const DT_PER_TICK = 1 / (252 * 6.5 * 60 * 30);
@@ -51,17 +52,39 @@ function advancePrices(state) {
   }
 }
 
+// All trades go through this so every order pays realistic costs.
+// price = the quoted price the strategy "saw" before slippage.
+// pnl   = gross P&L (entry vs exit). Costs are computed on each leg and
+//         the NET pnl (gross - costs) is what hits realizedPnl downstream.
 function newTrade(state, { instanceId, instrument, side, price, quantity, reason, pnl = 0 }) {
+  const costs = legCosts(side, price, quantity);
+  const grossPnl = Number(pnl.toFixed(2));
+  // Costs reduce net P&L on BOTH legs. Brokerage etc. are always negative
+  // for the trader. We subtract this leg's costs from pnl reported.
+  const netPnl = Number((grossPnl - costs.total).toFixed(2));
+
   const now = new Date().toISOString();
   const trade = {
     id: state.nextTradeId++,
     instanceId,
     instrument,
     side,
-    price: Number(price.toFixed(2)),
+    price: Number(price.toFixed(2)),         // quoted price (what strategy saw)
+    fillPrice: costs.fillPrice,                // actual fill after slippage
     quantity,
-    value: Number((price * quantity).toFixed(2)),
-    pnl: Number(pnl.toFixed(2)),
+    value: Number((costs.fillPrice * quantity).toFixed(2)),
+    pnl: netPnl,           // net (after costs) — kept under same key so existing UI keeps working
+    grossPnl,              // before costs (debug / educational view)
+    costs: {
+      brokerage: costs.brokerage,
+      stt: costs.stt,
+      exchangeTxn: costs.exchangeTxn,
+      sebi: costs.sebi,
+      stampDuty: costs.stampDuty,
+      gst: costs.gst,
+      slippage: costs.slippage,
+      total: costs.total,
+    },
     reason,
     timestamp: now,
   };
@@ -101,14 +124,16 @@ function tickInstance(state, inst) {
 
   if (!windowActive) {
     if (inst.position) {
-      const pnl = (price - inst.position.entryPrice) * inst.position.quantity;
+      const grossPnl = (price - inst.position.entryPrice) * inst.position.quantity;
       const trade = newTrade(state, {
         instanceId: inst.id, instrument: inst.instrument,
         side: 'SELL', price, quantity: inst.position.quantity,
-        reason: 'Window closed — auto-exit', pnl,
+        reason: 'Window closed — auto-exit', pnl: grossPnl,
       });
       inst.tradeIds.push(trade.id);
-      inst.realizedPnl = Number((inst.realizedPnl + pnl).toFixed(2));
+      // Net P&L = gross - exit-leg costs (in trade.pnl) - entry-leg costs (held on position)
+      const netRoundTrip = trade.pnl - (inst.position.entryCost ?? 0);
+      inst.realizedPnl = Number((inst.realizedPnl + netRoundTrip).toFixed(2));
       inst.position = null;
       inst.unrealizedPnl = 0;
     }
@@ -124,25 +149,29 @@ function tickInstance(state, inst) {
   if (signal.action === 'BUY' && !inst.position) {
     const positionValue = inst.capital * 0.1;
     const quantity = Math.max(1, Math.floor(positionValue / price));
-    inst.position = {
-      entryPrice: Number(price.toFixed(2)),
-      quantity,
-      entryAt: new Date().toISOString(),
-    };
     const trade = newTrade(state, {
       instanceId: inst.id, instrument: inst.instrument,
       side: 'BUY', price, quantity, reason: signal.reason,
     });
     inst.tradeIds.push(trade.id);
+    // entryCost = costs paid on the BUY leg; carried on the position so that
+    // exit-time net P&L = grossPnL - exitLegCosts - entryCost.
+    inst.position = {
+      entryPrice: Number(price.toFixed(2)),
+      quantity,
+      entryAt: new Date().toISOString(),
+      entryCost: trade.costs.total,
+    };
   } else if (signal.action === 'SELL' && inst.position) {
-    const pnl = (price - inst.position.entryPrice) * inst.position.quantity;
+    const grossPnl = (price - inst.position.entryPrice) * inst.position.quantity;
     const trade = newTrade(state, {
       instanceId: inst.id, instrument: inst.instrument,
       side: 'SELL', price, quantity: inst.position.quantity,
-      reason: signal.reason, pnl,
+      reason: signal.reason, pnl: grossPnl,
     });
     inst.tradeIds.push(trade.id);
-    inst.realizedPnl = Number((inst.realizedPnl + pnl).toFixed(2));
+    const netRoundTrip = trade.pnl - (inst.position.entryCost ?? 0);
+    inst.realizedPnl = Number((inst.realizedPnl + netRoundTrip).toFixed(2));
     inst.position = null;
     inst.unrealizedPnl = 0;
   }
