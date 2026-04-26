@@ -21,6 +21,7 @@ import { STRATEGIES, CODE_TO_ALGO } from './strategies.mjs';
 import { CATALOG, BY_CATEGORY, marketplaceRow, savedRow, codeToAlgoKey, lookupByCode } from './catalog.mjs';
 import { seedHistory, allDataSources, getDataSource } from './marketdata.mjs';
 import { computeMarketStatus, categoryFitsNow } from './market-regime.mjs';
+import { autoSchedulerStatus } from './auto-scheduler.mjs';
 
 const __dirname = path.dirname(url.fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..', '..');
@@ -249,6 +250,10 @@ async function main() {
       .map((b) => ({ method: b.method, path: b.path, samples: b.samples.length }))
       .sort((a, b) => a.path.localeCompare(b.path));
     res.json({ ok: true, endpointCount: endpoints.length, endpoints });
+  });
+
+  app.get('/_sim/auto-scheduler', (_req, res) => {
+    res.json(autoSchedulerStatus());
   });
 
   app.get('/_sim/status', (_req, res) => {

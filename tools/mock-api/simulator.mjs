@@ -209,6 +209,15 @@ async function tick() {
   for (const inst of state.instances) tickInstance(state, inst);
   state.lastTickAt = new Date().toISOString();
   try { await save(); } catch (e) { console.error('[sim] save failed:', e.message); }
+
+  // Auto-scheduler runs every 30s (rate-limited inside autoSchedulerTick).
+  // Gated by env so we can deploy the code path without it firing.
+  if (process.env.AUTO_SCHEDULER_ENABLED === 'true') {
+    try {
+      const { autoSchedulerTick } = await import('./auto-scheduler.mjs');
+      await autoSchedulerTick();
+    } catch (e) { console.error('[auto-scheduler] err:', e.message); }
+  }
 }
 
 export function start() {
