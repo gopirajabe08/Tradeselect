@@ -74,6 +74,15 @@ export async function load() {
     for (const inst of INSTRUMENTS) {
       if (!cached.priceHistory[inst.code]) cached.priceHistory[inst.code] = [cached.prices[inst.code] ?? inst.basePrice];
     }
+    // Backfill: legacy positions written before the cost-aware schema have
+    // no entryCost. Default to 0 and warn so the boundary is auditable.
+    // Loss bound: ~₹40 per legacy round-trip exit (entry-leg costs forgotten).
+    for (const inst of (cached.instances ?? [])) {
+      if (inst.position && inst.position.entryCost === undefined) {
+        inst.position.entryCost = 0;
+        console.warn(`[state] legacy position on instance #${inst.id} (${inst.instrument}) — entryCost backfilled to 0; first exit P&L will be overstated by entry-leg costs`);
+      }
+    }
   } catch (e) {
     // The file exists but isn't valid JSON — likely interrupted save().
     // Preserve it for postmortem; do NOT silently clobber.
@@ -155,30 +164,15 @@ export async function stopInstance(id) {
   const s = getState();
   const inst = s.instances.find((i) => i.id === id);
   if (!inst) return null;
-  // If the instance is holding a position, close it at current price and
-  // realize the P&L. Leaving position open after stop would freeze
-  // unrealizedPnl forever since the tick loop skips non-RUNNING instances.
+  // If holding a position, close via the shared helper so cost accounting
+  // is identical to a strategy-driven SELL or window-close auto-exit.
+  // Without this, user-initiated stops would silently overstate realized
+  // P&L by the entry-leg costs (≈₹40 per round-trip on liquid equity).
   if (inst.position) {
     const price = s.prices[inst.instrument];
     if (typeof price === 'number') {
-      const pnl = (price - inst.position.entryPrice) * inst.position.quantity;
-      const trade = {
-        id: s.nextTradeId++,
-        instanceId: inst.id,
-        instrument: inst.instrument,
-        side: 'SELL',
-        price: Number(price.toFixed(2)),
-        quantity: inst.position.quantity,
-        value: Number((price * inst.position.quantity).toFixed(2)),
-        pnl: Number(pnl.toFixed(2)),
-        reason: 'User stopped — auto-exit',
-        timestamp: new Date().toISOString(),
-      };
-      s.trades.push(trade);
-      inst.tradeIds.push(trade.id);
-      inst.realizedPnl = Number((inst.realizedPnl + pnl).toFixed(2));
-      inst.position = null;
-      inst.unrealizedPnl = 0;
+      const { closePositionWithCosts } = await import('./simulator.mjs');
+      closePositionWithCosts(s, inst, price, 'User stopped — auto-exit');
     }
   }
   inst.status = 'STOPPED';

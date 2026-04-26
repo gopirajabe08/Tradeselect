@@ -15,8 +15,8 @@ const BROKERAGE_PCT = 0.0003; // 0.03%
 // STT (Securities Transaction Tax): 0.025% on SELL side only for intraday.
 const STT_PCT_SELL = 0.00025;
 
-// NSE Exchange Transaction Charges: 0.00322% on both sides.
-const EXCHANGE_TXN_PCT = 0.0000322;
+// NSE Exchange Transaction Charges: 0.00297% on both sides (revised Oct 2023).
+const EXCHANGE_TXN_PCT = 0.0000297;
 
 // SEBI Turnover Fee: ₹10 per ₹1 crore = 0.0001% on both sides.
 const SEBI_PCT = 0.000001;
@@ -83,8 +83,10 @@ function round2(n) { return Number(n.toFixed(2)); }
 
 /**
  * Round-trip cost summary for documentation / sanity checks.
- * Example: for NIFTY at ₹24500 × 4 qty = ~₹980 turnover, round-trip cost ~₹1
- * Example: for HDFCBANK at ₹1700 × 6 qty = ~₹10200 turnover, round-trip ~₹6
+ * Example: ₹100 × 100 qty (₹10K turnover) → round-trip ~₹15  (0.15% breakeven)
+ * Example: HDFCBANK ₹1700 × 6 qty (~₹10.2K) → round-trip ~₹17  (0.17%)
+ * Example: NIFTY ₹24500 × 4 qty (~₹98K) → round-trip ~₹120  (0.12%)
+ * Slippage dominates costs at small notionals; STT+brokerage dominate at large.
  */
 export function roundTripCosts(price, quantity) {
   const buy = legCosts('BUY', price, quantity);
