@@ -7,6 +7,7 @@
 
 import { CATALOG, isInWindow, nowISTHHMM, nowISTDayOfWeek } from './catalog.mjs';
 import { getState, save, createInstance, stopInstance } from './state.mjs';
+import { notifyLaunched, notifyClosed, notifyDailySummary } from './telegram.mjs';
 
 // 2026 NSE equity-segment holiday list (Republic Day, Holi, Good Friday, etc.).
 // Format: 'YYYY-MM-DD'. NSE publishes this annually; refresh each Dec.
@@ -120,8 +121,12 @@ export async function autoSchedulerTick() {
   if (nowISTHHMM() >= '15:35') {
     for (const inst of state.instances) {
       if (inst.status !== 'RUNNING') continue;
-      await stopInstance(inst.id);
-      closed.push({ code: inst.strategyCode, instanceId: inst.id });
+      const stopped = await stopInstance(inst.id);
+      closed.push({
+        code: inst.strategyCode,
+        instanceId: inst.id,
+        realizedPnl: stopped?.realizedPnl ?? 0,
+      });
     }
   }
 
@@ -131,7 +136,39 @@ export async function autoSchedulerTick() {
       closed.length ? `← ${closed.map((c) => `${c.code}#${c.instanceId}`).join(',')}` : '',
     );
     await save();
+    // Fire-and-forget Telegram pings; failure here must NOT fail the tick.
+    notifyLaunched(launched).catch(() => {});
+    notifyClosed(closed).catch(() => {});
   }
+
+  // Daily summary at 15:40 IST (after EOD close, once per day).
+  await maybeSendDailySummary(state);
+}
+
+let lastSummarySentDate = null;
+
+async function maybeSendDailySummary(state) {
+  if (nowISTHHMM() < '15:40') return;
+  const today = nowISTDate();
+  if (lastSummarySentDate === today) return;
+  lastSummarySentDate = today;
+
+  const todays = state.instances.filter((i) => i.startedAt.slice(0, 10) === today);
+  if (todays.length === 0) return;
+
+  const byStrategy = todays.map((i) => ({
+    code: i.strategyCode,
+    name: i.strategyName,
+    trades: (i.tradeIds ?? []).length,
+    pnl: i.realizedPnl ?? 0,
+  })).sort((a, b) => b.pnl - a.pnl);
+
+  const totalRealized = byStrategy.reduce((sum, s) => sum + s.pnl, 0);
+  const topWinner = byStrategy[0];
+  const topLoser = byStrategy[byStrategy.length - 1];
+
+  await notifyDailySummary({ date: today, totalRealized, byStrategy, topWinner, topLoser })
+    .catch((err) => console.error('[auto-scheduler] summary notify failed:', err.message));
 }
 
 // Status report for the UI / health endpoint.
