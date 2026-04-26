@@ -1,0 +1,35 @@
+{
+  "name": "tradeauto",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {
+    "start": "max dev",
+    "dev": "max dev",
+    "mock": "node tools/mock-api/server.mjs",
+    "capture:auth": "node tools/capture-auth.mjs",
+    "capture:api": "node tools/capture-api.mjs",
+    "build": "max build",
+    "postinstall": "max setup",
+    "capture": "node tools/capture.mjs"
+  },
+  "dependencies": {
+    "@ant-design/charts": "^2.6.7",
+    "@ant-design/icons": "^5.5.2",
+    "@ant-design/pro-components": "^2.8.3",
+    "@monaco-editor/react": "^4.7.0",
+    "antd": "^5.22.2",
+    "dayjs": "^1.11.13",
+    "express": "^5.2.1",
+    "js-beautify": "^1.15.4",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@umijs/max": "^4.3.28",
+    "less": "^4.2.0",
+    "playwright": "^1.59.1",
+    "typescript": "^5.6.3"
+  }
+}

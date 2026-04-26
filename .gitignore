@@ -1,0 +1,33 @@
+# deps
+node_modules/
+.pnpm-store/
+
+# build
+dist/
+.umi/
+.umi-production/
+
+# env / secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+.tradeselect-creds
+
+# state files (live trading state stays on server only)
+tools/mock-api/_state.json
+tools/mock-api/_state.json.tmp
+tools/mock-api/_state.json.corrupt-*
+
+# capture (large recorded fixtures, not for repo)
+_capture/
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
+
+# logs
+*.log
+logs/
