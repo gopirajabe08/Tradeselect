@@ -49,6 +49,9 @@ function nowISTDate() {
 }
 
 function isTradingDay() {
+  // Test-only override: lets us exercise the scheduler outside market days.
+  // NEVER set this in production — strategies will trade on weekends/holidays.
+  if (process.env.TEST_FORCE_TRADING_DAY === 'true') return true;
   const dow = nowISTDayOfWeek();
   if (dow === 0 || dow === 6) return false;
   if (NSE_HOLIDAYS_2026.has(nowISTDate())) return false;
