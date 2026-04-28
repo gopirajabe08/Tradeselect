@@ -1,0 +1,13 @@
+[Unit]
+Description=TradeSelect — fire experiment runner at 16:00 IST Mon..Fri (during live window)
+
+[Timer]
+# 16:00 IST = 30 min after market close, 60 min before tsapp auto-stop.
+# Why during live window: needs tsapp.service to be active so the API endpoint responds.
+OnCalendar=Mon..Fri 16:00 Asia/Kolkata
+Persistent=false
+AccuracySec=30s
+Unit=tsapp-experiments.service
+
+[Install]
+WantedBy=timers.target

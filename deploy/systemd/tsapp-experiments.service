@@ -1,0 +1,13 @@
+[Unit]
+Description=TradeSelect — autonomous Phase 1 backtest experiments
+After=tsapp.service
+
+[Service]
+Type=oneshot
+ExecStart=/bin/bash -c 'curl --silent --max-time 300 --retry 1 \
+  -X POST http://127.0.0.1:2001/api/admin/experiments \
+  -o /var/log/tsapp/experiments-last.json \
+  -w "experiments: HTTP %{http_code} time=%{time_total}s\n" \
+  >> /var/log/tsapp/schedule.log 2>&1'
+StandardOutput=append:/var/log/tsapp/schedule.log
+StandardError=append:/var/log/tsapp/schedule.log
