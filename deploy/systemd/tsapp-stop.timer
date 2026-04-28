@@ -1,0 +1,13 @@
+[Unit]
+Description=TradeSelect — fire post-market stop at 17:00 IST Mon..Fri
+
+[Timer]
+# 17:00 IST = 90 min after 15:30 close. Captures bhavcopy / EOD reports
+# typically published 16:30–17:00. Adjust if overnight jobs need the app up.
+OnCalendar=Mon..Fri 17:00 Asia/Kolkata
+Persistent=false
+AccuracySec=30s
+Unit=tsapp-stop.service
+
+[Install]
+WantedBy=timers.target

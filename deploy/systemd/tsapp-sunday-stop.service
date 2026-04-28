@@ -1,0 +1,8 @@
+[Unit]
+Description=TradeSelect — Sunday-evening stop after weekly digest
+
+[Service]
+Type=oneshot
+ExecStart=/bin/systemctl stop tsapp.service
+StandardOutput=append:/var/log/tsapp/schedule.log
+StandardError=append:/var/log/tsapp/schedule.log

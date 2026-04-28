@@ -1,0 +1,33 @@
+# deps
+node_modules/
+
+# next
+.next/
+out/
+
+# env
+.env
+.env.local
+.env.*.local
+!.env.example
+!.env.local.example
+
+# build artefacts / persistent state
+data/
+.local-data/
+*.log
+tsconfig.tsbuildinfo
+
+# Claude Code per-user settings (machine-specific paths)
+.claude/settings.local.json
+
+# OS
+.DS_Store
+
+# editor
+.idea/
+.vscode/
+
+# secrets & keys
+*.pem
+*.key

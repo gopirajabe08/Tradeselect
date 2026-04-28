@@ -1,0 +1,13 @@
+[Unit]
+Description=TradeSelect — pre-market start (with NSE holiday gate)
+Documentation=file:///opt/ts-app/deploy/holiday-check.sh
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# Holiday gate: non-zero exit blocks the start (fail-safe).
+ExecStartPre=/opt/ts-app/deploy/holiday-check.sh /opt/ts-app/deploy/holidays-2026.json
+ExecStart=/bin/systemctl start tsapp.service
+StandardOutput=append:/var/log/tsapp/schedule.log
+StandardError=append:/var/log/tsapp/schedule.log

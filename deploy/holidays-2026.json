@@ -1,0 +1,33 @@
+{
+  "_comment": "NSE Equity (CM) segment trading holidays for 2026.",
+  "_schema": "ISO date YYYY-MM-DD => human label. Weekends auto-detected, do not list them.",
+  "_source": "NSE official holiday API (segment=CM): https://www.nseindia.com/api/holiday-master?type=trading",
+  "_lastVerified": "2026-04-27",
+
+  "2026-01-15": "Municipal Corporation Election - Maharashtra",
+  "2026-01-26": "Republic Day",
+  "2026-02-19": "Chatrapati Shivaji Maharaj Jayanti",
+  "2026-03-03": "Holi",
+  "2026-03-19": "Gudi Padwa",
+  "2026-03-26": "Shri Ram Navami",
+  "2026-03-31": "Shri Mahavir Jayanti",
+  "2026-04-01": "Annual Bank Closing",
+  "2026-04-03": "Good Friday",
+  "2026-04-14": "Dr. Baba Saheb Ambedkar Jayanti",
+  "2026-05-01": "Maharashtra Day",
+  "2026-05-28": "Bakri Id",
+  "2026-06-26": "Muharram",
+  "2026-09-14": "Ganesh Chaturthi",
+  "2026-10-02": "Mahatma Gandhi Jayanti",
+  "2026-10-20": "Dussehra",
+  "2026-11-10": "Diwali-Balipratipada",
+  "2026-11-24": "Prakash Gurpurb Sri Guru Nanak Dev",
+  "2026-12-25": "Christmas",
+
+  "_notes_skipped": [
+    "2026-02-15 Mahashivratri — Sunday, weekend auto-skip",
+    "2026-03-21 Id-Ul-Fitr — Saturday, weekend auto-skip",
+    "2026-08-15 Independence Day — Saturday, weekend auto-skip",
+    "2026-11-08 Diwali Laxmi Pujan — Sunday with Muhurat trading evening; if Muhurat session needed, manual override via systemctl"
+  ]
+}

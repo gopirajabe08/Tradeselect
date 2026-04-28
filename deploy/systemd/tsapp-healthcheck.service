@@ -1,0 +1,9 @@
+[Unit]
+Description=TradeSelect — post-start health check
+After=tsapp.service
+
+[Service]
+Type=oneshot
+ExecStart=/opt/ts-app/deploy/healthcheck.sh
+StandardOutput=append:/var/log/tsapp/schedule.log
+StandardError=append:/var/log/tsapp/schedule.log

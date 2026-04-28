@@ -1,0 +1,14 @@
+[Unit]
+Description=TradeSelect — fire pre-market start at 08:55 IST Mon..Fri
+
+[Timer]
+# 20-minute warmup before NSE 09:15 open. Persistent=false so a missed run
+# (laptop/server off) does NOT auto-fire on the next boot — important if
+# we boot late on a holiday.
+OnCalendar=Mon..Fri 08:55 Asia/Kolkata
+Persistent=false
+AccuracySec=30s
+Unit=tsapp-start.service
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,12 @@
+[Unit]
+Description=TradeSelect — Sunday weekly digest stop at 19:30 IST
+
+[Timer]
+# Window 18:00–19:00 + 30 min buffer = 19:30 stop.
+OnCalendar=Sun 19:30 Asia/Kolkata
+Persistent=false
+AccuracySec=30s
+Unit=tsapp-sunday-stop.service
+
+[Install]
+WantedBy=timers.target

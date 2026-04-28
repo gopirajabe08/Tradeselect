@@ -1,0 +1,13 @@
+[Unit]
+Description=TradeSelect — Sunday weekly digest start at 17:55 IST
+
+[Timer]
+# scheduler.ts maybeSendWeeklyDigest fires Sunday 18:00–19:00 IST.
+# Start 5 min early so first scheduler tick (5 min cadence) lands inside window.
+OnCalendar=Sun 17:55 Asia/Kolkata
+Persistent=false
+AccuracySec=30s
+Unit=tsapp-sunday-start.service
+
+[Install]
+WantedBy=timers.target

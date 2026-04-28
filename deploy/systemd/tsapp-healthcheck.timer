@@ -1,0 +1,11 @@
+[Unit]
+Description=TradeSelect — health check at 09:00 IST Mon..Fri (15 min before open)
+
+[Timer]
+OnCalendar=Mon..Fri 09:00 Asia/Kolkata
+Persistent=false
+AccuracySec=30s
+Unit=tsapp-healthcheck.service
+
+[Install]
+WantedBy=timers.target

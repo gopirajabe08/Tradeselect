@@ -1,0 +1,12 @@
+[Unit]
+Description=TradeSelect — Sunday-evening start for weekly digest
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# No holiday gate on Sunday — weekly digest fires from prior week's data
+# regardless of whether Sunday is a special date.
+ExecStart=/bin/systemctl start tsapp.service
+StandardOutput=append:/var/log/tsapp/schedule.log
+StandardError=append:/var/log/tsapp/schedule.log

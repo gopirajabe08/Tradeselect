@@ -1,0 +1,97 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 210 40% 98%;
+    --foreground: 222 47% 11%;
+    --card: 0 0% 100%;
+    --card-foreground: 222 47% 11%;
+    --primary: 221 83% 53%;
+    --primary-foreground: 210 40% 98%;
+    --secondary: 210 40% 96%;
+    --secondary-foreground: 222 47% 11%;
+    --muted: 210 40% 96%;
+    --muted-foreground: 215 16% 47%;
+    --accent: 210 40% 96%;
+    --accent-foreground: 222 47% 11%;
+    --border: 214 32% 91%;
+    --input: 214 32% 91%;
+    --ring: 221 83% 53%;
+    --success: 142 71% 45%;
+    --danger: 0 84% 60%;
+    --warning: 38 92% 50%;
+    --radius: 0.6rem;
+  }
+
+  .dark {
+    --background: 222 47% 7%;
+    --foreground: 210 40% 98%;
+    --card: 222 47% 10%;
+    --card-foreground: 210 40% 98%;
+    --primary: 217 91% 60%;
+    --primary-foreground: 222 47% 7%;
+    --secondary: 217 33% 17%;
+    --secondary-foreground: 210 40% 98%;
+    --muted: 217 33% 17%;
+    --muted-foreground: 215 20% 65%;
+    --accent: 217 33% 17%;
+    --accent-foreground: 210 40% 98%;
+    --border: 217 33% 17%;
+    --input: 217 33% 17%;
+    --ring: 217 91% 60%;
+    --success: 142 71% 45%;
+    --danger: 0 84% 60%;
+    --warning: 38 92% 50%;
+  }
+
+  * { @apply border-border; }
+  html, body { @apply bg-background text-foreground; }
+  body { font-feature-settings: "rlig" 1, "calt" 1; }
+}
+
+@layer components {
+  .card {
+    @apply rounded-lg border bg-card text-card-foreground shadow-sm;
+  }
+  .card-header { @apply p-5 border-b; }
+  .card-body   { @apply p-5; }
+
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-md text-sm font-medium transition
+           disabled:opacity-50 disabled:pointer-events-none h-9 px-4;
+  }
+  .btn-primary { @apply btn bg-primary text-primary-foreground hover:opacity-90; }
+  .btn-ghost   { @apply btn hover:bg-accent hover:text-accent-foreground; }
+  .btn-outline { @apply btn border border-input bg-transparent hover:bg-accent; }
+  .btn-danger  { @apply btn bg-[hsl(var(--danger))] text-white hover:opacity-90; }
+  .btn-success { @apply btn bg-[hsl(var(--success))] text-white hover:opacity-90; }
+
+  .input {
+    @apply flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm
+           shadow-sm placeholder:text-muted-foreground
+           focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring;
+  }
+  .badge {
+    @apply inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium;
+  }
+  .badge-success { @apply badge bg-[hsl(var(--success))]/10 text-[hsl(var(--success))]; }
+  .badge-danger  { @apply badge bg-[hsl(var(--danger))]/10 text-[hsl(var(--danger))]; }
+  .badge-muted   { @apply badge bg-muted text-muted-foreground; }
+
+  .table-base { @apply w-full text-sm; }
+  .table-base thead th {
+    @apply text-left text-xs uppercase tracking-wide text-muted-foreground py-2 px-3 border-b;
+  }
+  .table-base tbody td { @apply py-3 px-3 border-b last:border-0; }
+  .table-base tbody tr:hover { @apply bg-muted/50; }
+
+  .nav-link {
+    @apply flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium text-muted-foreground
+           hover:bg-accent hover:text-foreground transition;
+  }
+  .nav-link[data-active="true"] {
+    @apply bg-accent text-foreground;
+  }
+}
