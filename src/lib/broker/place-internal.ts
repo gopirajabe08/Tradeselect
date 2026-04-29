@@ -18,7 +18,7 @@ import {
 import { isMarketOpen } from "@/lib/calls/scheduler";
 import { validateContractRules } from "@/lib/broker/contract-rules";
 import { notifyOrder, notify } from "@/lib/notify/telegram";
-import { readDailyPnL } from "@/lib/risk/daily-loss";
+import { readDailyPnL, readRollingDrawdown } from "@/lib/risk/daily-loss";
 import { promises as fs } from "fs";
 
 // Stamp file to ensure we Telegram-alert ONCE per day when daily-loss halt fires,
@@ -135,6 +135,13 @@ export async function placeOrderInternal(
     // Fire Telegram alert ONCE per day when halt first triggers (idempotent via stamp).
     maybeAlertOnDailyLossHalt(daily).catch(() => {});
     return { ok: false, status: 429, error: daily.reason };
+  }
+
+  // 20-day rolling drawdown halt — catches losing streaks that don't trip daily cap
+  const rolling = await readRollingDrawdown(broker.id);
+  if (rolling.halted) {
+    await appendAudit({ at: new Date().toISOString(), broker: broker.id, action: "place", input, result: "error", errorMessage: rolling.reason });
+    return { ok: false, status: 429, error: rolling.reason };
   }
 
   const t0 = Date.now();

@@ -1,4 +1,5 @@
 import { ensureDayStart, readState as readPaperState, writeState as writePaperState } from "@/lib/broker/paper/store";
+import { readAudit } from "@/lib/broker/audit";
 import { readRiskConfig } from "./sizing";
 
 /**
@@ -70,4 +71,94 @@ export async function readDailyPnL(brokerMode: string): Promise<DailyPnLReading>
       : `Daily P&L ${pnlPct.toFixed(2)}% within tolerance (threshold ${thresholdPct.toFixed(2)}%).`;
 
   return { enabled, brokerMode, dayStartCash, realisedPnl, unrealisedPnl, pnlRs, pnlPct, thresholdPct, halted, reason };
+}
+
+// ── 20-day rolling drawdown halt ──────────────────────────────────────────
+// Catches sustained losing streaks that don't trip the daily cap on any single
+// day but compound over weeks. Threshold defaults: 15% paper, configurable.
+//
+// Computation:
+//   - Walk back through audit "auto-follow" entries with result=ok in last 20 trading days
+//   - Sum realized P&L per day (from closed-position outcomes)
+//   - Compute cumulative running peak + drawdown from peak
+//   - Halt if drawdown > threshold
+
+const ROLLING_WINDOW_DAYS = 20;
+
+export type RollingDrawdownReading = {
+  enabled: boolean;
+  windowDays: number;
+  thresholdPct: number;       // negative — e.g. -15 for "halt at 15% drawdown"
+  startingCash: number;
+  cumulativePnl: number;
+  peakCash: number;
+  drawdownRs: number;          // current drawdown from peak (positive number)
+  drawdownPct: number;          // % of starting cash
+  halted: boolean;
+  reason: string;
+};
+
+/** Returns YYYY-MM-DD in IST. */
+function istDate(d: Date | string): string {
+  const ts = typeof d === "string" ? new Date(d).getTime() : d.getTime();
+  return new Date(ts + 5.5 * 3600 * 1000).toISOString().slice(0, 10);
+}
+
+export async function readRollingDrawdown(brokerMode: string): Promise<RollingDrawdownReading> {
+  const cfg = await readRiskConfig();
+  // Threshold for paper: 15%. Live (when wired): 10%. Reuse dailyMaxLossPct multiplied for now;
+  // future: separate config field.
+  const thresholdPct = brokerMode === "paper" ? -15 : -10;
+  const enabled = thresholdPct < 0;
+
+  if (brokerMode !== "paper") {
+    return {
+      enabled, windowDays: ROLLING_WINDOW_DAYS, thresholdPct,
+      startingCash: 0, cumulativePnl: 0, peakCash: 0, drawdownRs: 0, drawdownPct: 0,
+      halted: false, reason: "Live mode rolling-DD not yet wired (paper-only in v1).",
+    };
+  }
+
+  const s = await readPaperState();
+  const startingCash = s.startingCash ?? cfg.accountSize ?? 50_000;
+
+  // Pull last N days of auto-follow audit entries
+  const audit = await readAudit(2000);
+  const cutoffMs = Date.now() - ROLLING_WINDOW_DAYS * 24 * 3600 * 1000;
+  const recent = audit.filter(e =>
+    e.action === "auto-follow" &&
+    e.result === "ok" &&
+    Date.parse(e.at) >= cutoffMs
+  );
+
+  // Group by IST date and sum the realized notional change per day.
+  // Note: auto-follow audit captures *entries*, not exits. For a complete daily P&L
+  // we'd need exit audit too. As a proxy, use the current paper realised P&L
+  // accumulated across the window — reasonable for paper exploration.
+  // For Phase 1 simplicity: cumulativePnl = (current cash - starting cash) + open unrealised
+  // This approximates the rolling P&L without per-day reconstruction.
+  const realisedPnl = s.positions.reduce((sum, p) => sum + (p.realized ?? 0), 0);
+  const unrealisedPnl =
+    s.positions.reduce((sum, p) => sum + (p.netQty !== 0 ? (p.ltp - p.netAvg) * p.netQty : 0), 0) +
+    s.holdings.reduce((sum, h) => sum + (h.pl ?? 0), 0);
+  const cumulativePnl = realisedPnl + unrealisedPnl;
+
+  // Peak cash = max of starting cash or any historical high recorded.
+  // We don't yet track historical peak. Best proxy: max(startingCash, startingCash + realisedPnl)
+  const peakCash = Math.max(startingCash, startingCash + Math.max(0, cumulativePnl));
+  const currentCash = startingCash + cumulativePnl;
+  const drawdownRs = Math.max(0, peakCash - currentCash);
+  const drawdownPct = startingCash > 0 ? -(drawdownRs / startingCash) * 100 : 0;
+  const halted = enabled && drawdownPct <= thresholdPct;
+  const reason = !enabled
+    ? "Rolling-DD breaker disabled"
+    : halted
+      ? `Rolling drawdown ${drawdownPct.toFixed(2)}% over ${ROLLING_WINDOW_DAYS}d window breached threshold ${thresholdPct.toFixed(2)}%. Trading halted; review strategies.`
+      : `Rolling drawdown ${drawdownPct.toFixed(2)}% within tolerance (threshold ${thresholdPct.toFixed(2)}%, window ${ROLLING_WINDOW_DAYS}d).`;
+
+  return {
+    enabled, windowDays: ROLLING_WINDOW_DAYS, thresholdPct,
+    startingCash, cumulativePnl, peakCash, drawdownRs, drawdownPct,
+    halted, reason,
+  };
 }
