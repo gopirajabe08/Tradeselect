@@ -30,7 +30,15 @@ import { readCalls } from "./store";
 import { readLastRegime } from "./generator";
 import { eventWindowFor } from "./event-calendar";
 import { isOnBanList, refreshBanList } from "./nse-ban-list";
+import { STRATEGIES } from "./strategies";
 import type { BrokerAdapter } from "@/lib/broker/adapter";
+
+/** Look up a strategy's productType from its id. Falls back to INTRADAY if not declared. */
+function productTypeFor(strategyId: string | undefined): "INTRADAY" | "CNC" {
+  if (!strategyId) return "INTRADAY";
+  const strat = STRATEGIES.find(s => s.id === strategyId);
+  return strat?.productType ?? "INTRADAY";
+}
 
 // ── NSE-veteran time-window gates ──────────────────────────────────────
 // "Don't trade the first 15 min — opening volatility = false breakouts.
@@ -393,6 +401,23 @@ export async function runAutoFollow(addedIdeas: TradeCall[], opts: AutoFollowOpt
       continue;
     }
 
+    // ── Phase 4 step 2-3: per-strategy productType + CNC-aware sizing ──
+    // CNC needs FULL notional in cash (no MIS leverage). Cap qty so
+    // qty * entry ≤ 95% of available cash. Leaves headroom for slippage.
+    // INTRADAY: existing leverage-aware sizing applies (5x via paper engine).
+    const stratProductType = productTypeFor((idea as any).strategyId);
+    if (stratProductType === "CNC") {
+      const maxCnchQty = Math.floor((ctx.cash * 0.95) / entry);
+      if (maxCnchQty <= 0) {
+        out.skipped.push({ ideaId: idea.id, reason: `CNC swing needs full notional in cash; entry ₹${entry.toFixed(2)} exceeds 95% of available cash ₹${ctx.cash.toFixed(0)}` });
+        continue;
+      }
+      if (qty > maxCnchQty) {
+        // Clamp qty down to fit CNC cash constraint. Risk-per-trade reduces correspondingly.
+        qty = maxCnchQty;
+      }
+    }
+
     // Per-tick margin cap applies to LIVE only. Paper deploys freely — the
     // paper engine's own cash check rejects when margin runs out.
     const estMargin = (qty * entry) / MIS_LEVERAGE;
@@ -429,7 +454,7 @@ export async function runAutoFollow(addedIdeas: TradeCall[], opts: AutoFollowOpt
 
     // 1. ENTRY
     const entryRes = await placeOrderInternal({
-      symbol: sym, qty, type: 2, side, productType: "INTRADAY",
+      symbol: sym, qty, type: 2, side, productType: stratProductType,
       limitPrice: 0, stopPrice: 0, validity: "DAY",
       orderTag: tag,
     }, { source: "auto-follow:entry", forceOffHours: opts.forceOffHours });
@@ -467,7 +492,7 @@ export async function runAutoFollow(addedIdeas: TradeCall[], opts: AutoFollowOpt
 
     // 2. STOP — always placed (the loss-cap leg)
     const slRes = await placeOrderInternal({
-      symbol: sym, qty, type: 3, side: exitSide, productType: "INTRADAY",
+      symbol: sym, qty, type: 3, side: exitSide, productType: stratProductType,
       limitPrice: 0, stopPrice: stopPx, validity: "DAY",
       orderTag: `${tag}-s`,
       ocoGroup,
@@ -478,7 +503,7 @@ export async function runAutoFollow(addedIdeas: TradeCall[], opts: AutoFollowOpt
     const placeTarget = !isLive || LIVE_BRACKET_MODE === "stop_target";
     if (placeTarget) {
       const tgtRes = await placeOrderInternal({
-        symbol: sym, qty, type: 1, side: exitSide, productType: "INTRADAY",
+        symbol: sym, qty, type: 1, side: exitSide, productType: stratProductType,
         limitPrice: targetPx, stopPrice: 0, validity: "DAY",
         orderTag: `${tag}-t`,
         ocoGroup,
