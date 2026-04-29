@@ -15,6 +15,12 @@ export type SymbolSnapshot = {
   yearHigh: number;
   yearLow: number;
   industry?: string;
+  /**
+   * Today's volume / 20-day average volume.
+   * RVOL > 2 = institutional accumulation tell (NSE veteran).
+   * Backtester populates this from bar history; live fetch may be undefined.
+   */
+  volumeRel20d?: number;
 };
 
 // What a strategy produces when it fires on a symbol.

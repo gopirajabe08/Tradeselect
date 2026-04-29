@@ -153,6 +153,15 @@ export function barToSnapshot(symbol: string, bars: HistoricalBar[], i: number):
   const yearLow  = Math.min(...window.map(b => b.l));
   const totalTradedValue = cur.v * cur.c;
 
+  // 20-day relative volume (RVOL). Used by NSE-veteran strategies to detect
+  // institutional accumulation. Falls back to 1.0 if insufficient history.
+  const volWindow = bars.slice(Math.max(0, i - 20), i);
+  let volumeRel20d: number | undefined;
+  if (volWindow.length >= 5) {
+    const avgVol = volWindow.reduce((s, b) => s + b.v, 0) / volWindow.length;
+    if (avgVol > 0) volumeRel20d = cur.v / avgVol;
+  }
+
   return {
     symbol,
     open: cur.o,
@@ -166,6 +175,7 @@ export function barToSnapshot(symbol: string, bars: HistoricalBar[], i: number):
     totalTradedValue,
     yearHigh,
     yearLow,
+    volumeRel20d,
   };
 }
 

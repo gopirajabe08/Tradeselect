@@ -5,6 +5,7 @@ import { intradayMomentum } from "./momentum";
 import { sectorLeader } from "./sector-leader";
 import { gapAndGo } from "./gap-and-go";
 import { intradayRangeSupport } from "./range-support";
+import { highRvolMomentum } from "./high-rvol-momentum";
 
 export * from "./types";
 
@@ -16,4 +17,5 @@ export const STRATEGIES: Strategy[] = [
   sectorLeader,
   gapAndGo,
   intradayRangeSupport,
+  highRvolMomentum,
 ];
