@@ -18,7 +18,7 @@ import {
 import { isMarketOpen } from "@/lib/calls/scheduler";
 import { validateContractRules } from "@/lib/broker/contract-rules";
 import { notifyOrder, notify } from "@/lib/notify/telegram";
-import { readDailyPnL, readRollingDrawdown } from "@/lib/risk/daily-loss";
+import { readDailyPnL, readRollingDrawdown, readOpsFailures } from "@/lib/risk/daily-loss";
 import { promises as fs } from "fs";
 
 // Stamp file to ensure we Telegram-alert ONCE per day when daily-loss halt fires,
@@ -142,6 +142,13 @@ export async function placeOrderInternal(
   if (rolling.halted) {
     await appendAudit({ at: new Date().toISOString(), broker: broker.id, action: "place", input, result: "error", errorMessage: rolling.reason });
     return { ok: false, status: 429, error: rolling.reason };
+  }
+
+  // Operational-failure halt — catches systemic broker/network issues
+  const ops = await readOpsFailures();
+  if (ops.halted) {
+    await appendAudit({ at: new Date().toISOString(), broker: broker.id, action: "place", input, result: "error", errorMessage: ops.reason });
+    return { ok: false, status: 429, error: ops.reason };
   }
 
   const t0 = Date.now();

@@ -162,3 +162,84 @@ export async function readRollingDrawdown(brokerMode: string): Promise<RollingDr
     halted, reason,
   };
 }
+
+// ── Operational-failure counter ──────────────────────────────────────────
+// Halts new orders if the system has logged ≥2 "operational" errors in the last
+// 7 days. Operational = broker rejections, timeouts, contract validation fails,
+// session expiry — failures that signal something's broken in the integration,
+// not strategy P&L. Catches systemic problems before they cascade.
+//
+// "Operational error" definition (audit log result=error):
+//   - action ∈ {"place", "cancel", "auto-follow"}
+//   - errorMessage matches: timeout, auth, invalid, session, network, broker
+//   - excludes: daily-loss halts, rolling-DD halts, market-closed (these aren't ops failures)
+
+const OPS_FAIL_WINDOW_DAYS = 7;
+const OPS_FAIL_THRESHOLD = 2;
+
+const OPS_ERROR_PATTERNS = [
+  /timeout/i,
+  /auth/i,
+  /session/i,
+  /network/i,
+  /econn/i,
+  /etimeout/i,
+  /503|502|504/,
+  /broker.*reject/i,
+  /invalid ip/i,
+  /rate.limit/i,
+];
+
+const OPS_EXCLUDE_PATTERNS = [
+  /daily.loss/i,
+  /rolling.drawdown/i,
+  /cooling.off/i,
+  /market.closed/i,
+  /opening.blackout/i,
+  /lunch.lull/i,
+  /closing.blackout/i,
+  /score.*<.*[0-9]+/i,        // score-gate skips are not ops fails
+  /max.open/i,
+  /already have/i,
+  /per.tick.cap/i,
+  /F&O ban/i,
+  /event window/i,
+  /qty=0/i,
+];
+
+export type OpsFailureReading = {
+  enabled: boolean;
+  windowDays: number;
+  threshold: number;
+  recentFailures: number;
+  halted: boolean;
+  recentSamples: { at: string; message: string }[];
+  reason: string;
+};
+
+export async function readOpsFailures(): Promise<OpsFailureReading> {
+  const audit = await readAudit(2000);
+  const cutoffMs = Date.now() - OPS_FAIL_WINDOW_DAYS * 24 * 3600 * 1000;
+  const recent = audit.filter(e => {
+    if (e.result !== "error") return false;
+    if (Date.parse(e.at) < cutoffMs) return false;
+    const msg = String(e.errorMessage ?? "");
+    if (OPS_EXCLUDE_PATTERNS.some(p => p.test(msg))) return false;
+    return OPS_ERROR_PATTERNS.some(p => p.test(msg));
+  });
+
+  const halted = recent.length >= OPS_FAIL_THRESHOLD;
+  const reason = halted
+    ? `Op-failure counter tripped: ${recent.length} operational errors in last ${OPS_FAIL_WINDOW_DAYS}d (threshold ${OPS_FAIL_THRESHOLD}). Halt for review. Latest: ${recent[0]?.errorMessage?.slice(0, 100)}`
+    : `Op-failures within tolerance (${recent.length}/${OPS_FAIL_THRESHOLD} in ${OPS_FAIL_WINDOW_DAYS}d window).`;
+
+  return {
+    enabled: true,
+    windowDays: OPS_FAIL_WINDOW_DAYS,
+    threshold: OPS_FAIL_THRESHOLD,
+    recentFailures: recent.length,
+    halted,
+    recentSamples: recent.slice(0, 5).map(e => ({ at: e.at, message: String(e.errorMessage ?? "").slice(0, 120) })),
+    reason,
+  };
+}
