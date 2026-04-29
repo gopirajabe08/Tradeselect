@@ -1,8 +1,19 @@
 import { promises as fs } from "fs";
 import path from "path";
 
-const DATA_DIR = path.join(process.cwd(), ".local-data", "paper");
-const FILE = path.join(DATA_DIR, "state.json");
+// Default (legacy) paper state path — equity-intraday account.
+// Multi-instrument support: callers pass an explicit path via readStateAt / writeStateAt.
+// See src/lib/instruments/registry.ts for per-instrument paths.
+const LEGACY_DATA_DIR = path.join(process.cwd(), ".local-data", "paper");
+const LEGACY_FILE = path.join(LEGACY_DATA_DIR, "state.json");
+
+/** Resolve a paper-state file path from an instrument's `paperStatePath` config field. */
+function resolveStatePath(relPath?: string): { dir: string; file: string } {
+  if (!relPath) return { dir: LEGACY_DATA_DIR, file: LEGACY_FILE };
+  const file = path.join(process.cwd(), ".local-data", relPath);
+  const dir = path.dirname(file);
+  return { dir, file };
+}
 
 export type PaperOrder = {
   id: string;
@@ -81,40 +92,65 @@ function initial(): PaperState {
   };
 }
 
-let cached: PaperState | null = null;
-let cachedAt = 0;
+// Per-path cache. Each instrument's paper account has its own cache entry.
+// Key = absolute file path. Value = { state, cachedAt }.
+const cacheByPath = new Map<string, { state: PaperState; cachedAt: number }>();
 const CACHE_MS = 500;
 
-async function ensureDir() {
-  try { await fs.mkdir(DATA_DIR, { recursive: true }); } catch {}
+async function ensureDir(dir: string) {
+  try { await fs.mkdir(dir, { recursive: true }); } catch {}
 }
 
-export async function readState(): Promise<PaperState> {
+/**
+ * Read paper state for a specific instrument's path.
+ * `relPath` comes from `InstrumentConfig.paperStatePath` (e.g., "paper-mcx/state.json").
+ * Omitted = legacy single-account path.
+ */
+export async function readStateAt(relPath?: string): Promise<PaperState> {
+  const { dir, file } = resolveStatePath(relPath);
   const now = Date.now();
-  if (cached && now - cachedAt < CACHE_MS) return cached;
-  await ensureDir();
+  const cached = cacheByPath.get(file);
+  if (cached && now - cached.cachedAt < CACHE_MS) return cached.state;
+  await ensureDir(dir);
+  let state: PaperState;
   try {
-    const raw = await fs.readFile(FILE, "utf8");
-    cached = JSON.parse(raw) as PaperState;
+    const raw = await fs.readFile(file, "utf8");
+    state = JSON.parse(raw) as PaperState;
   } catch {
-    cached = initial();
-    await writeState(cached);
+    state = initial();
+    await writeStateAt(state, relPath);
   }
-  cachedAt = now;
-  return cached;
+  cacheByPath.set(file, { state, cachedAt: now });
+  return state;
+}
+
+/** Write paper state to a specific instrument's path. */
+export async function writeStateAt(s: PaperState, relPath?: string): Promise<void> {
+  const { dir, file } = resolveStatePath(relPath);
+  await ensureDir(dir);
+  await fs.writeFile(file, JSON.stringify(s, null, 2), { mode: 0o600 });
+  cacheByPath.set(file, { state: s, cachedAt: Date.now() });
+}
+
+/** Legacy back-compat — reads/writes equity-intraday default path. */
+export async function readState(): Promise<PaperState> {
+  return readStateAt();
 }
 
 export async function writeState(s: PaperState): Promise<void> {
-  await ensureDir();
-  await fs.writeFile(FILE, JSON.stringify(s, null, 2), { mode: 0o600 });
-  cached = s;
-  cachedAt = Date.now();
+  return writeStateAt(s);
 }
 
-export async function resetState(startingCash = DEFAULT_STARTING_CASH): Promise<PaperState> {
+/** Reset state at a specific instrument's path with given starting capital. */
+export async function resetStateAt(startingCash: number, relPath?: string): Promise<PaperState> {
   const fresh: PaperState = { ...initial(), startingCash, cash: startingCash };
-  await writeState(fresh);
+  await writeStateAt(fresh, relPath);
   return fresh;
+}
+
+/** Legacy back-compat — resets equity-intraday default path. */
+export async function resetState(startingCash = DEFAULT_STARTING_CASH): Promise<PaperState> {
+  return resetStateAt(startingCash);
 }
 
 export function newOrderId(s: PaperState): string {
