@@ -17,8 +17,37 @@ import {
 } from "@/lib/broker/audit";
 import { isMarketOpen } from "@/lib/calls/scheduler";
 import { validateContractRules } from "@/lib/broker/contract-rules";
-import { notifyOrder } from "@/lib/notify/telegram";
+import { notifyOrder, notify } from "@/lib/notify/telegram";
 import { readDailyPnL } from "@/lib/risk/daily-loss";
+import { promises as fs } from "fs";
+
+// Stamp file to ensure we Telegram-alert ONCE per day when daily-loss halt fires,
+// not on every blocked order attempt (which would spam during the halt window).
+const HALT_ALERT_FILE = path.join(process.cwd(), ".local-data", "halt-alert-stamp.json");
+
+function istDateString(d: Date = new Date()): string {
+  return new Date(d.getTime() + 5.5 * 3600 * 1000).toISOString().slice(0, 10);
+}
+
+async function maybeAlertOnDailyLossHalt(reading: { pnlPct: number; thresholdPct: number; dayStartCash: number; pnlRs: number; brokerMode: string; reason: string }) {
+  const today = istDateString();
+  let stamp: { lastAlertDate?: string } = {};
+  try { stamp = JSON.parse(await fs.readFile(HALT_ALERT_FILE, "utf8")); } catch {}
+  if (stamp.lastAlertDate === today) return;  // already alerted today
+  const lines = [
+    `🛑 *Daily-loss halt triggered* (${reading.brokerMode})`,
+    ``,
+    `Today's P&L: *${reading.pnlPct.toFixed(2)}%* (₹${reading.pnlRs.toFixed(0)})`,
+    `Threshold: ${reading.thresholdPct.toFixed(2)}% of ₹${reading.dayStartCash.toFixed(0)} day-start cash`,
+    ``,
+    `*New orders blocked* until next IST trading day.`,
+    `Existing OCO stops continue to work normally.`,
+    ``,
+    `Override: edit \`.local-data/risk-config.json\` (set dailyMaxLossPct=0) — only if you accept the risk.`,
+  ];
+  await notify(lines.join("\n")).catch(() => {});
+  await fs.writeFile(HALT_ALERT_FILE, JSON.stringify({ lastAlertDate: today }), { mode: 0o600 }).catch(() => {});
+}
 
 export type PlaceResult =
   | { ok: true; order_id: string; message?: string; broker: string; latencyMs?: number; idempotent?: boolean }
@@ -103,6 +132,8 @@ export async function placeOrderInternal(
   const daily = await readDailyPnL(broker.id);
   if (daily.halted) {
     await appendAudit({ at: new Date().toISOString(), broker: broker.id, action: "place", input, result: "error", errorMessage: daily.reason });
+    // Fire Telegram alert ONCE per day when halt first triggers (idempotent via stamp).
+    maybeAlertOnDailyLossHalt(daily).catch(() => {});
     return { ok: false, status: 429, error: daily.reason };
   }
 
