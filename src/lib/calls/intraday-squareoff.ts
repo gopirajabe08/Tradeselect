@@ -50,6 +50,10 @@ function istDateString(d = new Date()): string {
 // 15:15–15:25 IST window — fires once per day, gated by stamp.
 const SQUAREOFF_WINDOW = { from: 15 * 60 + 15, to: 15 * 60 + 25 };
 
+// Phase 4 step 5/8: CNC carve-out lives here implicitly. CNC positions hold
+// across days by design (multi-day swing). They MUST NOT be in this set or
+// they'd be force-squared at 15:15 IST, defeating the swing strategy.
+// reversalBounce productType=CNC depends on this exclusion.
 const INTRADAY_PRODUCTS = new Set(["INTRADAY", "CO", "BO", "MIS"]);
 
 export async function maybeRunIntradaySquareoff(force = false): Promise<{ ran: boolean; closed: number; cancelled: number; reason?: string }> {
