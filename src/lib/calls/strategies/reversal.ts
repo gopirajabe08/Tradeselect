@@ -26,8 +26,14 @@ function range(s: SymbolSnapshot): number {
 export const reversalBounce: Strategy = {
   id: "reversal-52wl",
   name: "Oversold 52w-low bounce",
-  description: "Long setups on stocks rebounding within 12% of their 52-week low with a positive daily candle.",
+  description: "Long setups on stocks rebounding within 12% of their 52-week low with a positive daily candle. Multi-day swing — needs ~3 days for the bounce to play out.",
   allowedRegimes: ["CHOPPY"],   // mean-reversion works in range-bound markets, not in trends
+  // Backtest evidence (2026-04-29):
+  //   hold=3 days: +1.50 Sharpe (6mo), +0.65 Sharpe (2y) — robust positive edge
+  //   hold=1 day:  -1.58 Sharpe (6mo), -2.48 Sharpe (2y) — bleeding as intraday
+  // Therefore: this strategy MUST run as CNC swing, not INTRADAY.
+  productType: "CNC",
+  maxHoldDays: 3,
 
   apply(s: SymbolSnapshot): StrategyIdea | null {
     const pol = pctOfLow(s);
