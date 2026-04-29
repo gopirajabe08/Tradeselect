@@ -23,12 +23,20 @@ export default function PositionsPage() {
       ) : error ? (
         <div className="card"><div className="card-body text-sm text-[hsl(var(--danger))]">Error: {error}</div></div>
       ) : (
-        <PositionsTable
-          title="Net positions"
-          rows={data?.positions.netPositions ?? []}
-          loading={loading && !data}
-          lastUpdated={lastUpdated}
-        />
+        <>
+          <PositionsTable
+            title="Open positions"
+            rows={(data?.positions.netPositions ?? []).filter(p => (p.netQty ?? 0) !== 0)}
+            loading={loading && !data}
+            lastUpdated={lastUpdated}
+          />
+          <PositionsTable
+            title="Today's closed (realized P&L)"
+            rows={(data?.positions.netPositions ?? []).filter(p => (p.netQty ?? 0) === 0 && (p.realized_profit ?? 0) !== 0)}
+            loading={loading && !data}
+            lastUpdated={lastUpdated}
+          />
+        </>
       )}
     </>
   );
