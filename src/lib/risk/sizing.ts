@@ -53,9 +53,28 @@ export async function readRiskConfig(): Promise<RiskConfig> {
   return cache!;
 }
 
+/** Bounded rails for risk_pct — defense in depth.
+ *  Daily-self-improvement clamps before calling writeRiskConfig, but ANY caller
+ *  (admin route, debug script, future feature) must also be bounded. Adversarial
+ *  finding ADV-8 (2026-04-30 360-review): policy-by-convention isn't enough.
+ */
+const RISK_PCT_FLOOR = 0.25;
+const RISK_PCT_CEILING = 2.0;
+
 export async function writeRiskConfig(cfg: Partial<RiskConfig>): Promise<RiskConfig> {
   await ensureDir();
-  const merged = { ...await readRiskConfig(), ...cfg };
+  const sanitized: Partial<RiskConfig> = { ...cfg };
+  if (sanitized.riskPct != null && Number.isFinite(sanitized.riskPct)) {
+    const clamped = Math.max(RISK_PCT_FLOOR, Math.min(RISK_PCT_CEILING, sanitized.riskPct));
+    if (clamped !== sanitized.riskPct) {
+      console.warn(`[sizing] writeRiskConfig clamped riskPct ${sanitized.riskPct}% → ${clamped}% (rails [${RISK_PCT_FLOOR}, ${RISK_PCT_CEILING}])`);
+    }
+    sanitized.riskPct = clamped;
+  }
+  if (sanitized.dailyMaxLossPct != null && Number.isFinite(sanitized.dailyMaxLossPct)) {
+    sanitized.dailyMaxLossPct = Math.max(0, Math.min(20, sanitized.dailyMaxLossPct));
+  }
+  const merged = { ...await readRiskConfig(), ...sanitized };
   await fs.writeFile(FILE, JSON.stringify(merged, null, 2), { mode: 0o600 });
   cache = merged;
   cachedAt = Date.now();

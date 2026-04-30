@@ -81,7 +81,7 @@ export const INSTRUMENTS: InstrumentConfig[] = [
   {
     id: "equity-intraday",
     displayName: "Equity Intraday (NSE MIS)",
-    paperCapital: 50_000,
+    paperCapital: 50_000,  // 5× MIS leverage → ₹250k effective trading capacity, holds 4–5 positions
     dataSource: "yahoo",
     costModel: "equity-intraday",
     productType: "INTRADAY",
@@ -94,7 +94,7 @@ export const INSTRUMENTS: InstrumentConfig[] = [
   {
     id: "equity-swing",
     displayName: "Equity Swing (NSE CNC)",
-    paperCapital: 200_000,
+    paperCapital: 95_000,  // 1× full notional. Holds 3–4 mid-cap positions @ ₹20–30k each
     dataSource: "yahoo",
     costModel: "equity-cnc",
     productType: "CNC",
@@ -108,7 +108,7 @@ export const INSTRUMENTS: InstrumentConfig[] = [
   {
     id: "mcx",
     displayName: "MCX Commodities",
-    paperCapital: 200_000,
+    paperCapital: 95_000,  // mini crude lot margin ~₹30–40k, gold mini ~₹40–50k → 1–2 concurrent lots
     dataSource: "paid-mcx",
     costModel: "mcx",
     productType: "NRML",
@@ -117,12 +117,12 @@ export const INSTRUMENTS: InstrumentConfig[] = [
     hours: { start: "09:00", end: "23:30", days: ALL_WEEKDAYS },
     paperStatePath: "paper-mcx/state.json",
     enabled: false,
-    notes: "Crude/Gold/Silver/Copper/NaturalGas. Extended hours. CTT 0.01% sell-side. No strategies yet — Phase 2 research.",
+    notes: "Crude/Gold/Silver/Copper/NaturalGas. Extended hours. CTT 0.01% sell-side. Mini lots only at this capital. No strategies yet — Phase 2 research.",
   },
   {
     id: "options-index",
     displayName: "Index Options (NIFTY/BANKNIFTY)",
-    paperCapital: 300_000,
+    paperCapital: 95_000,  // option spreads ~₹30k margin each → 2–3 concurrent positions
     dataSource: "paid-options",
     costModel: "options-index",
     productType: "NRML",
@@ -130,12 +130,12 @@ export const INSTRUMENTS: InstrumentConfig[] = [
     hours: { start: "09:15", end: "15:30", days: ALL_WEEKDAYS },
     paperStatePath: "paper-options-index/state.json",
     enabled: false,
-    notes: "Premium selling on weekly/monthly expiry. Theta + IV awareness required. SEBI algo rules apply.",
+    notes: "Premium selling on weekly/monthly expiry. Theta + IV awareness required. At this capital, prefer spreads + buyers over naked sells. SEBI algo rules apply.",
   },
   {
     id: "futures-index",
-    displayName: "Index Futures (NIFTY/BANKNIFTY)",
-    paperCapital: 300_000,
+    displayName: "Index Futures (BANKNIFTY mini only)",
+    paperCapital: 95_000,  // NIFTY full lot needs ₹1.5L margin → CANNOT trade NIFTY futures at this capital. BANKNIFTY mini only.
     dataSource: "paid-options", // futures+options share data feeds typically
     costModel: "futures-index",
     productType: "NRML",
@@ -144,12 +144,12 @@ export const INSTRUMENTS: InstrumentConfig[] = [
     hours: { start: "09:15", end: "15:30", days: ALL_WEEKDAYS },
     paperStatePath: "paper-futures-index/state.json",
     enabled: false,
-    notes: "Lot size NIFTY=75, BANKNIFTY=15. Use for hedge against equity book + directional bets.",
+    notes: "Restricted to BANKNIFTY mini (lot=15) at this capital. NIFTY futures lot=75 needs ~₹1.5L margin and is excluded. Use for hedge against equity book + directional bets.",
   },
   {
     id: "fno-stock",
     displayName: "Stock F&O",
-    paperCapital: 300_000,
+    paperCapital: 95_000,  // mid-cap stock futures margin ~₹50–100k → single position only
     dataSource: "nse-bhavcopy",
     costModel: "fno-stock",
     productType: "NRML",
@@ -158,7 +158,7 @@ export const INSTRUMENTS: InstrumentConfig[] = [
     hours: { start: "09:15", end: "15:30", days: ALL_WEEKDAYS },
     paperStatePath: "paper-fno-stock/state.json",
     enabled: false,
-    notes: "Lower priority — less liquid than index F&O. Phase 9 in roadmap.",
+    notes: "Lower priority — less liquid than index F&O. Phase 9 in roadmap. Single concurrent position max at this capital.",
   },
 ];
 

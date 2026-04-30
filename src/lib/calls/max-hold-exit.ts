@@ -99,9 +99,17 @@ export async function maybeRunMaxHoldExit(opts: { forceOffHours?: boolean } = {}
       limitPrice: 0, stopPrice: 0, validity: "DAY",
       orderTag: tag,
     }, { source: "max-hold-exit", forceOffHours: opts.forceOffHours });
-    if (r.ok) {
+    // Critical guard — paper engine returns ok=true even when canAfford rejects MARKET fill
+    // (status=3 internally, message starts with "Rejected: ..."). Without this check, the
+    // position stays open past horizon and the next tick fires the same MARKET, same rejection,
+    // forever. Adversarial finding ADV-11 (2026-04-30 360-review).
+    const filled = r.ok && !(r.message && /^Rejected/i.test(r.message));
+    if (filled) {
       closed += 1;
       details.push({ symbol: p.symbol, ageDays, maxHoldDays: p.maxHoldDays!, strategyId: p.strategyId });
+    } else if (r.ok && r.message) {
+      // Surface to Telegram so the operator sees the silent-stuck case rather than waiting for next tick.
+      notify(`⚠️ *max-hold-exit could not flatten* ${p.symbol} (aged ${ageDays.toFixed(1)}d, maxHold=${p.maxHoldDays})\nReason: ${r.message}\nNext tick will retry. If this repeats, manual intervention needed.`).catch(() => {});
     }
   }
 

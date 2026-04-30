@@ -25,6 +25,7 @@ import { activeBroker } from "@/lib/broker";
 import { placeOrderInternal } from "@/lib/broker/place-internal";
 import { tickSizeFor } from "@/lib/broker/contract-rules";
 import { appendAudit, readAudit, NOTIONAL_HARD_CAP } from "@/lib/broker/audit";
+import { readRiskConfig } from "@/lib/risk/sizing";
 import { readState as readPaperState } from "@/lib/broker/paper/store";
 import { readCalls } from "./store";
 import { readLastRegime } from "./generator";
@@ -338,8 +339,23 @@ export async function runAutoFollow(addedIdeas: TradeCall[], opts: AutoFollowOpt
   }
 
   // Mode-specific config
+  // For PAPER: read riskPct from disk-backed risk-config (allows daily-self-improvement
+  // R3/R4 cooling-off to actually take effect). Falls back to env var on read failure.
+  // For LIVE: keep env var only — live tuning needs explicit human authorization, not
+  // auto-tuner drift. Adversarial finding ADV (2026-04-30 360-review): without this,
+  // R3/R4 writes were decorative.
   const minScore = isLive ? LIVE_MIN_SCORE : AUTO_FOLLOW_MIN_SCORE;
-  const riskPct  = isLive ? LIVE_RISK_PCT  : AUTO_FOLLOW_RISK_PCT;
+  let riskPct: number;
+  if (isLive) {
+    riskPct = LIVE_RISK_PCT;
+  } else {
+    try {
+      const cfg = await readRiskConfig();
+      riskPct = cfg.riskPct;
+    } catch {
+      riskPct = AUTO_FOLLOW_RISK_PCT;
+    }
+  }
   const maxOpen  = isLive ? LIVE_MAX_OPEN  : AUTO_FOLLOW_MAX_OPEN;
 
   // ── NSE-veteran size adjustment for this tick ──

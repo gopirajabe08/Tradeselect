@@ -72,3 +72,33 @@ describe("computeSizing — notional cap (the bug that produced ₹847k attempts
     }
   });
 });
+
+describe("writeRiskConfig — bounded rails enforced at persistence boundary (ADV-8 fix)", () => {
+  // The auto-tuner clamps before write, but this layer is defense in depth.
+  // Any caller (admin route, debug, future feature) cannot bypass the rails.
+  it("clamps risk_pct above 2% to ceiling 2%", async () => {
+    const { writeRiskConfig, readRiskConfig } = await import("./sizing");
+    const result = await writeRiskConfig({ riskPct: 5, accountSize: 100_000, dailyMaxLossPct: 2 });
+    expect(result.riskPct).toBe(2);
+  });
+
+  it("clamps risk_pct below 0.25% to floor 0.25%", async () => {
+    const { writeRiskConfig } = await import("./sizing");
+    const result = await writeRiskConfig({ riskPct: 0.1 });
+    expect(result.riskPct).toBe(0.25);
+  });
+
+  it("does not modify in-bound risk_pct values", async () => {
+    const { writeRiskConfig } = await import("./sizing");
+    const result = await writeRiskConfig({ riskPct: 1.5 });
+    expect(result.riskPct).toBe(1.5);
+  });
+
+  it("clamps daily-loss cap to [0, 20]", async () => {
+    const { writeRiskConfig } = await import("./sizing");
+    const r1 = await writeRiskConfig({ dailyMaxLossPct: -5 });
+    expect(r1.dailyMaxLossPct).toBe(0);
+    const r2 = await writeRiskConfig({ dailyMaxLossPct: 50 });
+    expect(r2.dailyMaxLossPct).toBe(20);
+  });
+});
