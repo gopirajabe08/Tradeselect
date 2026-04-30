@@ -4,8 +4,10 @@ After=tsapp.service
 
 [Service]
 Type=oneshot
+EnvironmentFile=/opt/ts-app/.env.local
 ExecStart=/bin/bash -c 'curl --silent --max-time 300 --retry 1 \
   -X POST http://127.0.0.1:2001/api/admin/experiments \
+  -H "X-Internal-Token: ${INTERNAL_API_TOKEN}" \
   -o /var/log/tsapp/experiments-last.json \
   -w "experiments: HTTP %{http_code} time=%{time_total}s\n" \
   >> /var/log/tsapp/schedule.log 2>&1'
