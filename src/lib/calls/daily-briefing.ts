@@ -20,6 +20,8 @@ import { STRATEGIES } from "./strategies";
 import { readAudit } from "@/lib/broker/audit";
 import { readCalls } from "./store";
 import { istDateString, isNseHoliday } from "@/lib/market/holidays";
+import { runDailySelfImprovement, formatSelfImprovement } from "./daily-self-improvement";
+import { computeLiveReadiness, formatLiveReadiness } from "./live-readiness";
 
 const STAMP_FILE = path.join(process.cwd(), ".local-data", "briefing-stamps.json");
 
@@ -246,6 +248,26 @@ export async function maybeSendEodBriefing(force = false): Promise<boolean> {
   if (winner) lines.push(`  • Best: ${winner.sym} +${winner.pct.toFixed(2)}%`);
   if (loser)  lines.push(`  • Worst: ${loser.sym} ${loser.pct.toFixed(2)}%`);
   if (!winner && !loser) lines.push(`  • No closed trades today`);
+  lines.push(``);
+
+  // ── Auto-improvements section — runs the self-improvement loop, then reports decisions ──
+  // Decisions are auto-applied; this is the audit trail.
+  try {
+    const selfImpReport = await runDailySelfImprovement();
+    lines.push(formatSelfImprovement(selfImpReport));
+    lines.push(``);
+  } catch (e) {
+    lines.push(`🤖 Auto-improvement run failed: ${(e as Error).message}`);
+    lines.push(``);
+  }
+
+  // ── Live-readiness scorecard — progress against the 5 bars from edge_definition ──
+  try {
+    const readiness = await computeLiveReadiness();
+    lines.push(formatLiveReadiness(readiness));
+  } catch (e) {
+    lines.push(`🎯 Live-readiness compute failed: ${(e as Error).message}`);
+  }
 
   const ok = await notify(lines.join("\n"));
   if (ok) {
