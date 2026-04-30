@@ -296,13 +296,29 @@ export async function runAutoFollow(addedIdeas: TradeCall[], opts: AutoFollowOpt
     return out;
   }
 
-  // Patience filter — skip CHOPPY entirely. Trend strategies need a trend; reversal
-  // strategies in choppy markets get whipsawed. Sitting out is alpha.
+  // Patience filter — skip CHOPPY for trend-only strategies. Trend strategies need
+  // a trend; reversal strategies in choppy markets get whipsawed. Sitting out is alpha.
+  //
+  // BUT: strategies that explicitly opt into CHOPPY (allowedRegimes includes CHOPPY)
+  // are CHOPPY-natives — they're DESIGNED for the regime, not collateral damage.
+  // Reversal-52wl, HRVM both opt into CHOPPY. Without this strategy-aware carve-out,
+  // re-enabling them was decorative — the patience filter dropped every idea.
+  // Fix shipped 2026-04-30 EOD after audit found this silent gap.
+  let workingIdeas: TradeCall[] = addedIdeas;
   if (SKIP_CHOPPY_REGIME) {
     const regime = await readLastRegime();
     if (regime?.regime === "CHOPPY") {
-      for (const c of addedIdeas) out.skipped.push({ ideaId: c.id, reason: `patience filter: regime CHOPPY (breadth ${regime.breadthPct.toFixed(0)}%, VIX ${regime.vix.toFixed(1)}) — sitting out` });
-      return out;
+      const filtered = workingIdeas.filter(c => {
+        const stratId = (c as any).strategyId as string | undefined;
+        const strat = stratId ? STRATEGIES.find(s => s.id === stratId) : undefined;
+        const optsIntoChoppy = strat?.allowedRegimes?.includes("CHOPPY") ?? false;
+        if (!optsIntoChoppy) {
+          out.skipped.push({ ideaId: c.id, reason: `patience filter: regime CHOPPY (breadth ${regime.breadthPct.toFixed(0)}%, VIX ${regime.vix.toFixed(1)}) — strategy ${stratId ?? "?"} not CHOPPY-native` });
+        }
+        return optsIntoChoppy;
+      });
+      if (filtered.length === 0) return out;
+      workingIdeas = filtered;
     }
   }
 
@@ -312,15 +328,15 @@ export async function runAutoFollow(addedIdeas: TradeCall[], opts: AutoFollowOpt
   if (!opts.forceOffHours) {
     const minNow = istMinutes();
     if (minNow < VETERAN_OPENING_END) {
-      for (const c of addedIdeas) out.skipped.push({ ideaId: c.id, reason: `veteran gate: opening blackout 09:15–09:30 IST — false breakouts likely` });
+      for (const c of workingIdeas) out.skipped.push({ ideaId: c.id, reason: `veteran gate: opening blackout 09:15–09:30 IST — false breakouts likely` });
       return out;
     }
     if (minNow >= VETERAN_LUNCH_FROM && minNow < VETERAN_LUNCH_TO) {
-      for (const c of addedIdeas) out.skipped.push({ ideaId: c.id, reason: `veteran gate: lunch lull 12:00–13:30 IST — thin liquidity, slippage worse` });
+      for (const c of workingIdeas) out.skipped.push({ ideaId: c.id, reason: `veteran gate: lunch lull 12:00–13:30 IST — thin liquidity, slippage worse` });
       return out;
     }
     if (minNow >= VETERAN_CLOSING_FROM) {
-      for (const c of addedIdeas) out.skipped.push({ ideaId: c.id, reason: `veteran gate: closing blackout from 15:15 IST — squareoff cascades, no time for thesis` });
+      for (const c of workingIdeas) out.skipped.push({ ideaId: c.id, reason: `veteran gate: closing blackout from 15:15 IST — squareoff cascades, no time for thesis` });
       return out;
     }
   }
@@ -334,7 +350,7 @@ export async function runAutoFollow(addedIdeas: TradeCall[], opts: AutoFollowOpt
     e.action === "auto-follow" && e.result === "ok" && e.at.startsWith(todayIso)
   ).length;
   if (DAILY_NEW_POSITIONS_MAX > 0 && todaysAutoFollowOk >= DAILY_NEW_POSITIONS_MAX) {
-    for (const c of addedIdeas) out.skipped.push({ ideaId: c.id, reason: `daily new-position cap reached (${todaysAutoFollowOk}/${DAILY_NEW_POSITIONS_MAX}). Resets at next IST midnight.` });
+    for (const c of workingIdeas) out.skipped.push({ ideaId: c.id, reason: `daily new-position cap reached (${todaysAutoFollowOk}/${DAILY_NEW_POSITIONS_MAX}). Resets at next IST midnight.` });
     return out;
   }
 
@@ -382,7 +398,7 @@ export async function runAutoFollow(addedIdeas: TradeCall[], opts: AutoFollowOpt
   // Sort highest-score first so the per-tick cap takes the BEST ideas, not
   // the first-by-arrival. Without this, a flicker tick fills the cap with
   // weak ideas and starves later high-conviction setups.
-  const rankedIdeas = [...addedIdeas].sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
+  const rankedIdeas = [...workingIdeas].sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
 
   for (const idea of rankedIdeas) {
     out.attempted += 1;
