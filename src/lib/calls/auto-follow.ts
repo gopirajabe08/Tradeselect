@@ -24,7 +24,7 @@ import type { TradeCall } from "@/lib/mock/seed";
 import { activeBroker } from "@/lib/broker";
 import { placeOrderInternal } from "@/lib/broker/place-internal";
 import { tickSizeFor } from "@/lib/broker/contract-rules";
-import { appendAudit, readAudit } from "@/lib/broker/audit";
+import { appendAudit, readAudit, NOTIONAL_HARD_CAP } from "@/lib/broker/audit";
 import { readState as readPaperState } from "@/lib/broker/paper/store";
 import { readCalls } from "./store";
 import { readLastRegime } from "./generator";
@@ -38,6 +38,13 @@ function productTypeFor(strategyId: string | undefined): "INTRADAY" | "CNC" {
   if (!strategyId) return "INTRADAY";
   const strat = STRATEGIES.find(s => s.id === strategyId);
   return strat?.productType ?? "INTRADAY";
+}
+
+/** Look up a strategy's maxHoldDays. Returns undefined when not declared (no enforcement). */
+function maxHoldDaysFor(strategyId: string | undefined): number | undefined {
+  if (!strategyId) return undefined;
+  const strat = STRATEGIES.find(s => s.id === strategyId);
+  return strat?.maxHoldDays;
 }
 
 // ── NSE-veteran time-window gates ──────────────────────────────────────
@@ -400,6 +407,18 @@ export async function runAutoFollow(addedIdeas: TradeCall[], opts: AutoFollowOpt
       out.skipped.push({ ideaId: idea.id, reason: `qty=0 (stopDist ₹${stopDist.toFixed(2)} too wide for risk ₹${riskCashPerTrade.toFixed(0)})` });
       continue;
     }
+    // Notional hard-cap enforcement — second line of defense after risk-per-trade.
+    // High-priced stocks with tight stops produce qty × entry > broker cap → broker
+    // rejects the entire order (lesson stamped 2026-04-28: ₹847k attempt rejected).
+    // Capping qty here means we still place a (smaller) trade instead of zero.
+    const qtyByNotionalCap = Math.floor(NOTIONAL_HARD_CAP / entry);
+    if (qty > qtyByNotionalCap) {
+      if (qtyByNotionalCap <= 0) {
+        out.skipped.push({ ideaId: idea.id, reason: `entry ₹${entry.toFixed(2)} exceeds notional hard-cap ₹${NOTIONAL_HARD_CAP} → cannot trade single share` });
+        continue;
+      }
+      qty = qtyByNotionalCap;
+    }
 
     // ── Phase 4 step 2-3: per-strategy productType + CNC-aware sizing ──
     // CNC needs FULL notional in cash (no MIS leverage). Cap qty so
@@ -452,11 +471,16 @@ export async function runAutoFollow(addedIdeas: TradeCall[], opts: AutoFollowOpt
     const tag = `af-${cid}`;
     const ocoGroup = `oco-${cid}`;
 
-    // 1. ENTRY
+    // 1. ENTRY — stamp strategyId + maxHoldDays so the resulting position carries them
+    //    through to max-hold-exit + per-strategy attribution.
+    const stratId = (idea as any).strategyId as string | undefined;
+    const stratMaxHoldDays = maxHoldDaysFor(stratId);
     const entryRes = await placeOrderInternal({
       symbol: sym, qty, type: 2, side, productType: stratProductType,
       limitPrice: 0, stopPrice: 0, validity: "DAY",
       orderTag: tag,
+      strategyId: stratId,
+      maxHoldDays: stratMaxHoldDays,
     }, { source: "auto-follow:entry", forceOffHours: opts.forceOffHours });
 
     if (!entryRes.ok) {

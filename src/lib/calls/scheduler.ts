@@ -7,6 +7,7 @@ import { maybeRunAutoCull } from "./auto-cull";
 import { startAutoFollowMonitor } from "./auto-follow-monitor";
 import { maybeSendMorningBriefing, maybeSendMiddayBriefing, maybeSendEodBriefing, maybeSendWeeklyDigest } from "./daily-briefing";
 import { maybeRunIntradaySquareoff } from "./intraday-squareoff";
+import { maybeRunMaxHoldExit } from "./max-hold-exit";
 import { promises as fs } from "fs";
 import path from "path";
 
@@ -71,6 +72,13 @@ async function tick() {
 
   // Intraday squareoff — fires once per day at 15:15–15:25 IST, mirrors broker behavior.
   maybeRunIntradaySquareoff().catch(e => console.warn("[squareoff] failed:", (e as Error).message));
+
+  // Max-hold exit — every tick during market hours, closes CNC positions aged ≥ strategy.maxHoldDays.
+  // Critical for backtest-live alignment: strategy edges are at specific hold horizons; without this,
+  // CNC swing positions carry indefinitely and the supposed edge is fictional.
+  if (isMarketOpen()) {
+    maybeRunMaxHoldExit().catch(e => console.warn("[max-hold-exit] failed:", (e as Error).message));
+  }
 
   try {
     const today = istDateString();

@@ -30,6 +30,12 @@ export type PaperOrder = {
   /** OCO group: when one order in the group fills, all other open orders in the same group are auto-cancelled.
    *  Used by auto-follow to bracket an entry with paired SL-M + LIMIT exit legs. */
   ocoGroup?: string;
+  /** Strategy that originated this order. Stamped at place time so engine can flow it through to position
+   *  on fill. Enables max-hold-days enforcement and per-strategy attribution. */
+  strategyId?: string;
+  /** Max holding days for the resulting position. Copied to PaperPosition on opening fill.
+   *  Frozen at place time so live changes to the strategy don't retroactively change open positions. */
+  maxHoldDays?: number;
   status: 1 | 2 | 3 | 4 | 6; // 2 filled, 6 open, 4 transit, 1 cancelled, 3 rejected (Fyers-compatible)
   filledQty: number;
   tradedPrice: number;       // average fill
@@ -49,6 +55,12 @@ export type PaperPosition = {
   sellAvg: number;
   realized: number;          // P&L locked in
   ltp: number;               // last seen market price
+  /** Strategy that opened this position. Set on the opening fill; cleared when netQty returns to 0. */
+  strategyId?: string;
+  /** ms timestamp of the fill that opened the current direction. Used by max-hold-exit. */
+  openedAt?: number;
+  /** Max holding days frozen at open time. Max-hold-exit closes the position when (now - openedAt) ≥ this value. */
+  maxHoldDays?: number;
 };
 
 export type PaperHolding = {

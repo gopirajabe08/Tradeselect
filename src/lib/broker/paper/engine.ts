@@ -137,6 +137,19 @@ function applyFill(s: PaperState, o: PaperOrder, fillQty: number, fillPrice: num
     p.realized += realizedTotal;
   }
 
+  // Stamp position attribution on opening fills — needed for max-hold-exit and per-strategy P&L.
+  // Stamps when the position transitions from flat (or was flat in this direction) to open.
+  // Cleared when netQty returns to 0 below.
+  const isOpeningFill = openQty > 0 && (
+    (o.side === 1 && p.netQty <= 0) ||  // BUY that opens long (was flat or short)
+    (o.side === -1 && p.netQty >= 0)    // SELL that opens short (was flat or long)
+  );
+  if (isOpeningFill && o.strategyId) {
+    p.strategyId = o.strategyId;
+    p.openedAt = Date.now();
+    p.maxHoldDays = o.maxHoldDays;
+  }
+
   // Apply realistic Indian-equity / F&O transaction costs to paper P&L. Without this,
   // paper-strategy returns look ~0.15 % better per round-trip than real money would deliver.
   const segment = inferSegment(o.symbol, o.productType);
@@ -185,6 +198,13 @@ function applyFill(s: PaperState, o: PaperOrder, fillQty: number, fillPrice: num
   }
 
   p.ltp = fillPrice;
+
+  // Clear position attribution when netQty returns to flat — fresh attribution on next opening fill.
+  if (p.netQty === 0) {
+    p.strategyId = undefined;
+    p.openedAt = undefined;
+    p.maxHoldDays = undefined;
+  }
 
   // CNC BUY → contribute to holdings
   if (o.productType === "CNC" && o.side === 1) {
@@ -458,6 +478,8 @@ export const PaperBroker = {
       validity:   o.validity   ?? "DAY",
       orderTag:   o.orderTag,
       ocoGroup:   o.ocoGroup,
+      strategyId:  o.strategyId,
+      maxHoldDays: o.maxHoldDays,
       status: 6, // open
       filledQty: 0,
       tradedPrice: 0,

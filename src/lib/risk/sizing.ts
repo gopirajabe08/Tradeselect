@@ -1,15 +1,23 @@
 import { promises as fs } from "fs";
 import path from "path";
 import { lotSizeFor, isFnoOrMcxSymbol } from "@/lib/broker/contract-rules";
+import { NOTIONAL_HARD_CAP } from "@/lib/broker/audit";
 
 /**
  * Position sizing using the risk-parity rule: every trade risks the same % of your account.
  *
  *   maxLoss    = accountSize × riskPct
  *   slDistance = |entry − stopLoss|
- *   qty        = floor(maxLoss / slDistance)
+ *   qtyByRisk  = floor(maxLoss / slDistance)
+ *   qtyByCap   = floor(notionalCap / entry)
+ *   qty        = min(qtyByRisk, qtyByCap)
  *
- * For F&O / MCX: qty is floored to the nearest lot-size multiple.
+ * The notional cap is the second line of defense after risk-per-trade. On high-priced
+ * stocks with tight stops, risk-only sizing produces qty × entry that exceeds the
+ * broker's hard cap → broker rejects the order entirely → no trade is placed.
+ * Capping qty by notional here means we still place a (smaller) trade instead of none.
+ *
+ * For F&O / MCX: qty is floored to the nearest lot-size multiple after both caps.
  */
 
 export type RiskConfig = {
@@ -60,6 +68,8 @@ export type SizingInput = {
   stopLoss: number;
   accountSize?: number;    // override risk-config
   riskPct?: number;
+  /** Hard cap on notional (qty × entry). Default = NOTIONAL_HARD_CAP. */
+  notionalCap?: number;
 };
 
 export type SizingResult = {
@@ -68,12 +78,14 @@ export type SizingResult = {
   maxLossRs: number;
   notional: number;
   lotSize: number | null;
-  reason?: string;         // non-empty when sizing was constrained (e.g. "rounded down to lot size")
+  reason?: string;         // non-empty when sizing was constrained (lot-size, notional cap, etc.)
+  cappedByNotional?: boolean;
 };
 
 export function computeSizing(input: SizingInput, cfg: RiskConfig): SizingResult {
   const accountSize = input.accountSize ?? cfg.accountSize;
   const riskPct     = input.riskPct     ?? cfg.riskPct;
+  const notionalCap = input.notionalCap ?? NOTIONAL_HARD_CAP;
   const maxLossRs   = (accountSize * riskPct) / 100;
   const slDistance  = Math.abs(input.entry - input.stopLoss);
 
@@ -81,19 +93,27 @@ export function computeSizing(input: SizingInput, cfg: RiskConfig): SizingResult
     return { recommendedQty: 0, slDistance, maxLossRs, notional: 0, lotSize: null, reason: "invalid entry/SL" };
   }
 
-  let qty = Math.floor(maxLossRs / slDistance);
+  const qtyByRisk = Math.floor(maxLossRs / slDistance);
+  const qtyByCap  = notionalCap > 0 ? Math.floor(notionalCap / input.entry) : qtyByRisk;
+  let qty = Math.min(qtyByRisk, qtyByCap);
+  const cappedByNotional = qtyByCap < qtyByRisk;
+
   const isFno = isFnoOrMcxSymbol(input.symbol);
   const lot = lotSizeFor(input.symbol, isFno);
 
-  let reason: string | undefined;
+  const reasons: string[] = [];
+  if (cappedByNotional) {
+    reasons.push(`Notional cap ₹${notionalCap} clamps qty from ${qtyByRisk} to ${qtyByCap} (entry ₹${input.entry.toFixed(2)})`);
+  }
+
   if (lot !== null) {
     const lots = Math.floor(qty / lot);
     if (lots < 1) {
-      reason = `Risk budget ₹${maxLossRs.toFixed(0)} is below one lot (${lot}) × SL distance ₹${slDistance.toFixed(2)}. Increase risk % or widen SL.`;
+      reasons.push(`Resulting qty below one lot (${lot}). Increase risk % or widen SL.`);
       qty = 0;
     } else {
       const adjusted = lots * lot;
-      if (adjusted !== qty) reason = `Rounded to ${lots} lot${lots>1?"s":""} (${adjusted} shares)`;
+      if (adjusted !== qty) reasons.push(`Rounded to ${lots} lot${lots>1?"s":""} (${adjusted} shares)`);
       qty = adjusted;
     }
   }
@@ -104,6 +124,7 @@ export function computeSizing(input: SizingInput, cfg: RiskConfig): SizingResult
     maxLossRs,
     notional: qty * input.entry,
     lotSize: lot,
-    reason,
+    reason: reasons.length ? reasons.join("; ") : undefined,
+    cappedByNotional,
   };
 }

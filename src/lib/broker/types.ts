@@ -143,4 +143,10 @@ export type PlaceOrderInput = {
   orderTag?: string;
   /** OCO group id (paper engine only). When one order in the group fills, others auto-cancel. */
   ocoGroup?: string;
+  /** Strategy that originated this order — flows through to PaperPosition for max-hold-exit + attribution.
+   *  Live brokers ignore this field. */
+  strategyId?: string;
+  /** Max holding days for the resulting position. Frozen at place time so subsequent strategy edits don't retro-affect open positions.
+   *  Live brokers ignore this field. */
+  maxHoldDays?: number;
 };
