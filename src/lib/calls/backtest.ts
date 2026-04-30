@@ -40,6 +40,21 @@ export type TradeResult = {
   score: number;         // conviction score at the time the idea fired
 };
 
+/**
+ * Statistical metrics produced by aggregation. Two distinct things, both useful, often confused:
+ *   - sharpe   = mean / sd          → effect size per trade. "How big is the edge per trade?"
+ *   - tStat    = mean / sd × √N     → statistical significance. "How sure are we the edge is real?"
+ *
+ * Prior versions of this file labelled (mean/sd × √N) as "sharpe", which inflated the
+ * apparent edge with sample size. Two strategies with same mean/sd looked very different
+ * just because one had 4 trades vs 100. Fixed 2026-04-30 — values now match standard
+ * finance convention.
+ *
+ * Comparison rule of thumb (per-trade returns in %):
+ *   sharpe > 0.3        = meaningful per-trade edge
+ *   |tStat| > 2         = statistically significant at ~95%
+ *   sharpe > 0.3 AND |tStat| > 2  = both real and significant — promote
+ */
 export type BucketPerformance = {
   bucket: string;         // "<60", "60-69", "70-79", "80-89", "90-100"
   trades: number;
@@ -49,8 +64,10 @@ export type BucketPerformance = {
   avgReturnNet: number;    // net of realistic Indian transaction costs
   bestReturn: number;
   worstReturn: number;
-  sharpe: number;
-  sharpeNet: number;
+  sharpe: number;          // mean / sd (per-trade effect size, gross)
+  sharpeNet: number;       // mean / sd (per-trade effect size, post-cost)
+  tStat: number;           // mean / sd × √N (significance, gross)
+  tStatNet: number;        // mean / sd × √N (significance, post-cost)
 };
 
 export type StrategyPerformance = {
@@ -65,8 +82,10 @@ export type StrategyPerformance = {
   bestReturn: number;
   worstReturn: number;
   totalReturn: number;
-  sharpe: number;          // gross
-  sharpeNet: number;       // post-cost
+  sharpe: number;          // mean / sd (per-trade effect size, gross)
+  sharpeNet: number;       // mean / sd (per-trade effect size, post-cost)
+  tStat: number;           // mean / sd × √N (significance, gross)
+  tStatNet: number;        // mean / sd × √N (significance, post-cost)
   avgCostPct: number;      // round-trip cost as % of notional, per trade avg
   avgScore: number;
   sampleTrades: TradeResult[];
@@ -105,6 +124,8 @@ function aggregateBucket(trades: TradeResult[]): Omit<BucketPerformance, "bucket
   const meanNet = netReturns.length ? netReturns.reduce((a, b) => a + b, 0) / netReturns.length : 0;
   const sd = stddev(returns);
   const sdNet = stddev(netReturns);
+  const sharpe = sd > 0 ? mean / sd : 0;
+  const sharpeNet = sdNet > 0 ? meanNet / sdNet : 0;
   return {
     trades: trades.length,
     wins,
@@ -113,8 +134,10 @@ function aggregateBucket(trades: TradeResult[]): Omit<BucketPerformance, "bucket
     avgReturnNet: meanNet,
     bestReturn: returns.length ? Math.max(...returns) : 0,
     worstReturn: returns.length ? Math.min(...returns) : 0,
-    sharpe: sd > 0 ? (mean / sd) * Math.sqrt(returns.length) : 0,
-    sharpeNet: sdNet > 0 ? (meanNet / sdNet) * Math.sqrt(netReturns.length) : 0,
+    sharpe,
+    sharpeNet,
+    tStat:    sharpe    * Math.sqrt(returns.length),
+    tStatNet: sharpeNet * Math.sqrt(netReturns.length),
   };
 }
 
@@ -123,6 +146,28 @@ function stddev(xs: number[]): number {
   const mean = xs.reduce((a, b) => a + b, 0) / xs.length;
   const variance = xs.reduce((a, b) => a + (b - mean) ** 2, 0) / (xs.length - 1);
   return Math.sqrt(variance);
+}
+
+/**
+ * Compute summary statistics from a list of per-trade returns (in %).
+ * Exported for unit testing — the same math powers `aggregateBucket` and the
+ * per-strategy aggregator. Refactored 2026-04-30 to fix the longstanding
+ * mislabel of (mean/sd × √N) as "sharpe".
+ */
+export function computeReturnStats(returns: number[]): {
+  n: number;
+  mean: number;
+  sd: number;
+  sharpe: number;   // mean / sd  — per-trade effect size
+  tStat: number;    // mean / sd × √n  — significance
+} {
+  const n = returns.length;
+  if (n === 0) return { n: 0, mean: 0, sd: 0, sharpe: 0, tStat: 0 };
+  const mean = returns.reduce((a, b) => a + b, 0) / n;
+  const sd = stddev(returns);
+  const sharpe = sd > 0 ? mean / sd : 0;
+  const tStat = sharpe * Math.sqrt(n);
+  return { n, mean, sd, sharpe, tStat };
 }
 
 function simulateForward(idea: StrategyIdea, bars: HistoricalBar[], i: number, holdDays: number, score: number): TradeResult {
@@ -305,6 +350,8 @@ export async function runBacktest(opts?: {
     const sd = stddev(returns);
     const sdNet = stddev(netReturns);
     const avgScore = trades.length ? trades.reduce((a, b) => a + b.score, 0) / trades.length : 0;
+    const sharpe    = sd    > 0 ? avgReturn    / sd    : 0;
+    const sharpeNet = sdNet > 0 ? avgReturnNet / sdNet : 0;
     return {
       strategyId:   strat.id,
       strategyName: strat.name,
@@ -317,8 +364,10 @@ export async function runBacktest(opts?: {
       bestReturn:   returns.length ? Math.max(...returns) : 0,
       worstReturn:  returns.length ? Math.min(...returns) : 0,
       totalReturn:  returns.reduce((a, b) => a + b, 0),
-      sharpe:       sd    > 0 ? (avgReturn    / sd)    * Math.sqrt(returns.length) : 0,
-      sharpeNet:    sdNet > 0 ? (avgReturnNet / sdNet) * Math.sqrt(netReturns.length) : 0,
+      sharpe,
+      sharpeNet,
+      tStat:        sharpe    * Math.sqrt(returns.length),
+      tStatNet:     sharpeNet * Math.sqrt(netReturns.length),
       avgCostPct,
       avgScore,
       sampleTrades: trades.slice(-10),
