@@ -3,7 +3,7 @@ import type { Strategy, SymbolSnapshot, StrategyIdea } from "./types";
 /**
  * High Relative Volume Momentum (HRVM)
  *
- * NSE-veteran setup: when a stock trades >2x its 20-day average volume AND closes
+ * NSE-veteran setup: when a stock trades elevated 20-day average volume AND closes
  * in the upper third of its day's range, institutions are accumulating. The buy
  * pressure typically continues 2-3 sessions.
  *
@@ -13,13 +13,21 @@ import type { Strategy, SymbolSnapshot, StrategyIdea } from "./types";
  *   - Retail follows the next 1-3 days, providing follow-through
  *
  * Fires when:
- *   - Today's volume / 20-day avg ≥ 2.0 (institutional tell)
+ *   - Today's volume / 20-day avg ≥ RVOL_THRESHOLD (institutional tell)
  *   - Close in upper 30% of day's range (strength confirmation)
  *   - pChange > 0 (positive day, not catching falling knife)
  *   - Annual range ≥ 1.3x (skip chronic decliners)
  *   - LTP ≥ 70% of yearHigh (avoid deep-pullback territory)
  *
- * Multi-day swing: holds for ~3 days. Same backtest framework as reversalBounce.
+ * Multi-day swing: holds for ~3 days.
+ *
+ * Threshold tuning (2026-04-30 sweep, 6mo backtest, hold=3):
+ *   RVOL≥1.0  → 61 trades, Sharpe 0.10  (edge collapses, too noisy)
+ *   RVOL≥1.25 → 38 trades, Sharpe 0.19  (best total P&L 17.4%, Sharpe below 0.3)
+ *   RVOL≥1.5  → 20 trades, Sharpe 0.22  ★ shipped — 3.3× more fires, Sharpe holds
+ *   RVOL≥1.75 → 10 trades, Sharpe 0.41  (best Sharpe, fewer fires)
+ *   RVOL≥2.0  →  6 trades, Sharpe 0.40  (original — too selective for paper learning)
+ * Decision: 1.5× balances frequency (paper data accumulation) vs edge (Sharpe ≥ 0.20).
  */
 function dayRangePosition(s: SymbolSnapshot): number {
   const range = s.dayHigh - s.dayLow;
@@ -41,7 +49,9 @@ export const highRvolMomentum: Strategy = {
 
   apply(s: SymbolSnapshot): StrategyIdea | null {
     if (s.lastPrice <= 0) return null;
-    if (s.volumeRel20d === undefined || s.volumeRel20d < 2.0) return null;
+    // RVOL_THRESHOLD env-overridable to allow rapid tuning without code changes
+    const RVOL_MIN = Number(process.env.HRVM_RVOL_THRESHOLD ?? 1.5);
+    if (s.volumeRel20d === undefined || s.volumeRel20d < RVOL_MIN) return null;
 
     const closePos = dayRangePosition(s);
     if (closePos < 70) return null;                      // close in upper third
