@@ -44,13 +44,31 @@ export default function BrokerPage() {
   }, [sp, activeMode]);
 
   async function switchMode(mode: BrokerId) {
+    // Switching INTO a live broker is irreversible without re-confirmation. Audit
+    // 2026-05-04 found the original single-click switch was the biggest "fat-finger
+    // → real money armed" failure mode. Force a typed confirmation.
+    const goingLive = mode !== "paper" && activeMode === "paper";
+    if (goingLive) {
+      const typed = prompt(
+        `⚠ SWITCHING TO LIVE TRADING (${mode.toUpperCase()})\n\n` +
+        `Real money will be used for ALL future orders, including auto-fired strategy orders.\n` +
+        `Caps remain (per-trade ₹${process.env.NEXT_PUBLIC_LIVE_MAX_PER_TRADE_NOTIONAL ?? "15,000"}, daily ₹${process.env.NEXT_PUBLIC_LIVE_MAX_DAILY_NOTIONAL ?? "50,000"}), but the system WILL place real orders.\n\n` +
+        `Type LIVE (in capitals) to confirm:`,
+      );
+      if (typed !== "LIVE") { alert("Mode change cancelled — confirmation text did not match 'LIVE'."); return; }
+    }
     const r = await fetch("/api/broker/mode", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ mode }),
     });
     if (!r.ok) { const j = await r.json().catch(()=>({})); alert(j.error ?? "Failed to switch"); return; }
-    setBanner({ kind: "ok", msg: `Active broker set to ${mode}.` });
+    setBanner({
+      kind: "ok",
+      msg: goingLive
+        ? `🔴 LIVE — active broker is now ${mode}. Real money is at risk for all subsequent orders.`
+        : `Active broker set to ${mode}.`,
+    });
     refresh(); funds.refresh();
   }
 

@@ -1,7 +1,7 @@
 "use client";
 import Link from "next/link";
 import { PageHeader } from "@/components/page-header";
-import { useBrokerResource } from "@/lib/broker/hooks";
+import { useBrokerResource, useBrokerStatus } from "@/lib/broker/hooks";
 import { classForChange, formatINR, formatNumber } from "@/lib/utils";
 import type { FyersOrder } from "@/lib/broker/types";
 import { ORDER_TYPE_LABEL, orderStatusMeta } from "@/lib/broker/labels";
@@ -11,6 +11,8 @@ import { useState } from "react";
 export default function OrderbookPage() {
   const { data, loading, error, status, lastUpdated, refresh } =
     useBrokerResource<{ orders: FyersOrder[] }>("/api/broker/orders", 10_000);
+  const { status: brokerStatus } = useBrokerStatus(15_000);
+  const isPaper = !brokerStatus || brokerStatus.brokerId === "paper";
   const [cancelingId, setCancelingId] = useState<string | null>(null);
 
   async function cancel(o: FyersOrder) {
@@ -37,8 +39,8 @@ export default function OrderbookPage() {
   return (
     <>
       <PageHeader
-        title="Orderbook (live)"
-        subtitle="Today's orders on your Fyers account."
+        title={isPaper ? "Orderbook — Paper" : "Orderbook — LIVE"}
+        subtitle={isPaper ? "Today's simulated orders in paper account." : `Today's real orders on ${brokerStatus?.brokerId?.toUpperCase()} account.`}
         actions={<button className="btn-outline" onClick={refresh}><RefreshCw className="h-3.5 w-3.5 mr-1" />Refresh</button>}
       />
 

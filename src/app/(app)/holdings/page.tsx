@@ -1,7 +1,7 @@
 "use client";
 import Link from "next/link";
 import { PageHeader } from "@/components/page-header";
-import { useBrokerResource } from "@/lib/broker/hooks";
+import { useBrokerResource, useBrokerStatus } from "@/lib/broker/hooks";
 import { classForChange, formatINR, formatNumber, formatPct } from "@/lib/utils";
 import type { FyersHolding } from "@/lib/broker/types";
 import { RefreshCw } from "lucide-react";
@@ -9,6 +9,8 @@ import { RefreshCw } from "lucide-react";
 export default function HoldingsPage() {
   const { data, loading, error, status, lastUpdated, refresh } =
     useBrokerResource<{ holdings: FyersHolding[] }>("/api/broker/holdings", 30_000);
+  const { status: brokerStatus } = useBrokerStatus(15_000);
+  const isPaper = !brokerStatus || brokerStatus.brokerId === "paper";
   const rows = data?.holdings ?? [];
 
   const totals = rows.reduce((acc, h) => {
@@ -23,8 +25,8 @@ export default function HoldingsPage() {
   return (
     <>
       <PageHeader
-        title="Holdings (live)"
-        subtitle="Long-term holdings fetched from your Fyers account."
+        title={isPaper ? "Holdings — Paper" : "Holdings — LIVE"}
+        subtitle={isPaper ? "Simulated long-term holdings in paper account." : `Real holdings on ${brokerStatus?.brokerId?.toUpperCase()} account.`}
         actions={<button className="btn-outline" onClick={refresh}><RefreshCw className="h-3.5 w-3.5 mr-1" />Refresh</button>}
       />
 

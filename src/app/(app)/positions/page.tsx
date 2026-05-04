@@ -1,7 +1,7 @@
 "use client";
 import Link from "next/link";
 import { PageHeader } from "@/components/page-header";
-import { useBrokerResource } from "@/lib/broker/hooks";
+import { useBrokerResource, useBrokerStatus } from "@/lib/broker/hooks";
 import { classForChange, formatINR, formatNumber } from "@/lib/utils";
 import type { FyersPosition } from "@/lib/broker/types";
 import { RefreshCw } from "lucide-react";
@@ -9,12 +9,14 @@ import { RefreshCw } from "lucide-react";
 export default function PositionsPage() {
   const { data, loading, error, status, lastUpdated, refresh } =
     useBrokerResource<{ positions: { netPositions: FyersPosition[]; overall?: any } }>("/api/broker/positions", 15_000);
+  const { status: brokerStatus } = useBrokerStatus(15_000);
+  const isPaper = !brokerStatus || brokerStatus.brokerId === "paper";
 
   return (
     <>
       <PageHeader
-        title="Positions (live)"
-        subtitle="Open intraday + overnight positions from your Fyers account."
+        title={isPaper ? "Positions — Paper" : "Positions — LIVE"}
+        subtitle={isPaper ? "Simulated positions in paper account." : `Real positions on ${brokerStatus?.brokerId?.toUpperCase()} account.`}
         actions={<button className="btn-outline" onClick={refresh}><RefreshCw className="h-3.5 w-3.5 mr-1" />Refresh</button>}
       />
 

@@ -7,6 +7,7 @@ import { callMetrics, callStats, performanceByAnalyst, segmentPerformance } from
 import { algos } from "@/lib/mock/seed";
 import { readCalls } from "@/lib/calls/store";
 import { triggerCallMatcher } from "@/lib/calls/matcher";
+import { readMode } from "@/lib/broker/mode";
 import { classForChange, formatNumber, formatPct } from "@/lib/utils";
 import Link from "next/link";
 import {
@@ -17,6 +18,8 @@ import {
 export default async function DashboardPage() {
   triggerCallMatcher();                       // fire-and-forget: check live prices vs Active calls
   const calls = await readCalls();
+  const mode = await readMode();
+  const isPaper = mode === "paper";
   const stats   = callStats(calls);
   const bySeg   = segmentPerformance(calls);
   const byAnalyst = performanceByAnalyst(calls);
@@ -34,8 +37,8 @@ export default async function DashboardPage() {
   return (
     <>
       <PageHeader
-        title="Dashboard"
-        subtitle="Trade with research, not opinions."
+        title={`Dashboard — ${isPaper ? "Paper mode" : "LIVE — real money"}`}
+        subtitle={isPaper ? "Trade with research, not opinions. (Simulated trading; no real money at risk.)" : `🔴 Real-money trading via ${mode.toUpperCase()}. Every order placed is real.`}
         actions={
           <Link href="/calls" className="btn-primary">
             View all ideas <ArrowRight className="h-4 w-4" />

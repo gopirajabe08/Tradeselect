@@ -27,9 +27,11 @@ export function BrokerStatusBadge() {
     );
   }
   if (status.connected && !status.expired) {
+    // LIVE mode: alarming red, NOT success-green. The user must immediately register
+    // that real money is in play. Audit 2026-05-04: success-green made live look safe.
     return (
-      <Link href="/broker" className="text-xs inline-flex items-center gap-1.5 px-2 py-1 rounded-full border border-[hsl(var(--success))]/30 text-[hsl(var(--success))] bg-[hsl(var(--success))]/10" title={`Connected as ${status.userName ?? ""}`}>
-        <CheckCircle2 className="h-3 w-3" /> Fyers Live
+      <Link href="/broker" className="text-xs inline-flex items-center gap-1.5 px-2 py-1 rounded-full border border-red-600 text-white bg-red-600 font-semibold animate-pulse" title={`LIVE — real money — connected as ${status.userName ?? ""}`}>
+        <CheckCircle2 className="h-3 w-3" /> LIVE · {status.brokerId?.toUpperCase()}
       </Link>
     );
   }
