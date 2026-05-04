@@ -6,6 +6,9 @@ import { sectorLeader } from "./sector-leader";
 import { gapAndGo } from "./gap-and-go";
 import { intradayRangeSupport } from "./range-support";
 import { highRvolMomentum } from "./high-rvol-momentum";
+import { relativeStrengthWeakDay } from "./relative-strength-weak-day";
+// volatilityContractionBreakout failed 2026-05-04 backtest (NR4 alone produced -0.15 Sharpe over 14 trades).
+// Code stays in src/ for future iteration but not registered in active book.
 
 export * from "./types";
 
@@ -18,4 +21,5 @@ export const STRATEGIES: Strategy[] = [
   gapAndGo,
   intradayRangeSupport,
   highRvolMomentum,
+  relativeStrengthWeakDay,
 ];

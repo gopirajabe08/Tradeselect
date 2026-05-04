@@ -21,6 +21,16 @@ export type SymbolSnapshot = {
    * Backtester populates this from bar history; live fetch may be undefined.
    */
   volumeRel20d?: number;
+  /**
+   * Today's daily range (high-low) ÷ median daily range over prior 7 trading days.
+   * < 0.6 = significant contraction (NR7-style); strong setup for breakout.
+   * Backtester populates from bar history; live fetch undefined until live-bars extension lands.
+   */
+  rangeRel7d?: number;
+  /** Today's range is the smallest in the last 4 trading days (NR4). */
+  isNR4?: boolean;
+  /** Today's range is the smallest in the last 7 trading days (NR7) — stricter contraction signal. */
+  isNR7?: boolean;
 };
 
 // What a strategy produces when it fires on a symbol.

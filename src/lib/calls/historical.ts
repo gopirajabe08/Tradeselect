@@ -162,6 +162,23 @@ export function barToSnapshot(symbol: string, bars: HistoricalBar[], i: number):
     if (avgVol > 0) volumeRel20d = cur.v / avgVol;
   }
 
+  // Range contraction detection — feeds Volatility-Contraction Breakout strategy.
+  // NR4/NR7 = today's high-low is the narrowest of the last 4/7 trading days.
+  // rangeRel7d = today's range / median of prior 7 days' ranges. <0.6 = strong contraction.
+  const todayRange = cur.h - cur.l;
+  let isNR4: boolean | undefined;
+  let isNR7: boolean | undefined;
+  let rangeRel7d: number | undefined;
+  if (i >= 7) {
+    const last7Ranges = bars.slice(i - 7, i).map(b => b.h - b.l);
+    const last4Ranges = bars.slice(i - 4, i).map(b => b.h - b.l);
+    isNR4 = last4Ranges.every(r => todayRange <= r);
+    isNR7 = last7Ranges.every(r => todayRange <= r);
+    const sortedRanges = [...last7Ranges].sort((a, b) => a - b);
+    const median = sortedRanges[Math.floor(sortedRanges.length / 2)];
+    if (median > 0) rangeRel7d = todayRange / median;
+  }
+
   return {
     symbol,
     open: cur.o,
@@ -176,6 +193,9 @@ export function barToSnapshot(symbol: string, bars: HistoricalBar[], i: number):
     yearHigh,
     yearLow,
     volumeRel20d,
+    rangeRel7d,
+    isNR4,
+    isNR7,
   };
 }
 
