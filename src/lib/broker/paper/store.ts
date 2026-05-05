@@ -88,6 +88,12 @@ export type PaperState = {
   /** Cumulative paper-mode transaction costs since last reset (₹).
    *  Lets the user see what real-broker fees would have eaten. */
   totalCosts?: number;
+  /** Realized P&L credited TODAY only (resets at IST midnight rollover via ensureDayStart).
+   *  Distinct from per-position cumulative `realized` — that field never resets, so summing
+   *  it gives lifetime P&L, not today's. EOD briefing should use this for "today's P&L". */
+  dayRealized?: number;
+  /** Costs incurred TODAY only — same reset cycle. Lets briefings show today's drag. */
+  dayCosts?: number;
 };
 
 const DEFAULT_STARTING_CASH = Number(process.env.PAPER_STARTING_CASH ?? 1_000_000);
@@ -177,6 +183,7 @@ function istDateString(d: Date = new Date()): string {
 
 /**
  * Stamps `dayStartCash` for the current IST date if today's stamp is missing or stale.
+ * Also resets `dayRealized` and `dayCosts` so per-day P&L doesn't carry over.
  * Mutates `s` in place. Caller must persist if mutated.
  * Returns true if state was rolled forward.
  */
@@ -185,5 +192,7 @@ export function ensureDayStart(s: PaperState): boolean {
   if (s.dayStartIstDate === today && s.dayStartCash != null) return false;
   s.dayStartIstDate = today;
   s.dayStartCash = s.cash;
+  s.dayRealized = 0;
+  s.dayCosts = 0;
   return true;
 }

@@ -7,6 +7,7 @@ import { classifyRegime, type RegimeReading } from "./regime";
 import { notifyCallsGenerated } from "@/lib/notify/telegram";
 import { readOverrides, isDisabled } from "./strategy-overrides";
 import { eventWindowFor } from "./event-calendar";
+import { enrichWithBarStats } from "./live-bars";
 import { promises as fs } from "fs";
 import path from "path";
 
@@ -107,6 +108,12 @@ export async function runGenerator(): Promise<{
     return true;
   });
   console.log(`[generator] veteran-gates filtered universe: ${snapshots.length} → ${liquidUniverse.length} (turnover ≥ ₹${TURNOVER_FLOOR_LAKHS / 100}cr, |pChange| ≤ ${CIRCUIT_PCHG_PCT}%)`);
+
+  // Enrich liquid universe with historical-bar stats (volumeRel20d, isNR4/NR7, rangeRel7d).
+  // HRVM and VCB-style strategies require these fields; the NSE batch endpoint doesn't ship
+  // them. Fetches are bounded (8 concurrent) and cached 6h. First scan after boot adds ~6s;
+  // subsequent scans within market hours: cache hits, ~0 cost.
+  await enrichWithBarStats(liquidUniverse);
 
   // Run regime-allowed strategies
   const scored: { idea: StrategyIdea; score: number }[] = [];

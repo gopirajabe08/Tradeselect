@@ -2,7 +2,7 @@ import type {
   FyersProfile, FyersFunds, FyersHolding, FyersPosition, FyersOrder, FyersQuoteRow,
   PlaceOrderInput,
 } from "../types";
-import { readState, writeState, newOrderId, type PaperOrder, type PaperPosition, type PaperState } from "./store";
+import { readState, writeState, newOrderId, ensureDayStart, type PaperOrder, type PaperPosition, type PaperState } from "./store";
 import { getLtp } from "./quotes";
 import { computeCosts, inferSegment } from "@/lib/risk/costs";
 
@@ -95,6 +95,10 @@ function canAfford(
  * For MARGIN/CO/BO (mult=0.2) only 20% of notional moves in/out, plus realized P&L.
  */
 function applyFill(s: PaperState, o: PaperOrder, fillQty: number, fillPrice: number) {
+  // Ensure today's IST date has been stamped + dayRealized/dayCosts reset.
+  // This catches the case where the matcher fires the first fill of a new IST day
+  // before any user-triggered place flows ensureDayStart via daily-loss check.
+  ensureDayStart(s);
   let p = findPosition(s, o.symbol, o.productType);
   if (!p) {
     p = {
@@ -135,6 +139,12 @@ function applyFill(s: PaperState, o: PaperOrder, fillQty: number, fillPrice: num
     const realizedTotal = realizedPerUnit * closeQty;
     s.cash += closeQty * originalAvg * mult + realizedTotal;
     p.realized += realizedTotal;
+    // Track today's realized separately for accurate EOD reporting. Position-level
+    // `realized` is cumulative and never resets — summing it across positions in a daily
+    // briefing gives LIFETIME P&L, not today. dayRealized resets via ensureDayStart at
+    // IST midnight. Fix shipped 2026-05-05 after EOD briefing was conflating Apr 29's
+    // closes with today's activity.
+    s.dayRealized = (s.dayRealized ?? 0) + realizedTotal;
   }
 
   // Stamp position attribution on opening fills — needed for max-hold-exit and per-strategy P&L.
@@ -165,8 +175,10 @@ function applyFill(s: PaperState, o: PaperOrder, fillQty: number, fillPrice: num
   if (closeQty > 0) {
     // Treat costs as a realised debit when closing, so per-trade P&L reflects net.
     p.realized -= costs.total;
+    s.dayRealized = (s.dayRealized ?? 0) - costs.total;
   }
   s.totalCosts = (s.totalCosts ?? 0) + costs.total;
+  s.dayCosts = (s.dayCosts ?? 0) + costs.total;
 
   // Update position qty + avg
   if (o.side === 1) {

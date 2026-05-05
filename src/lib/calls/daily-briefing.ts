@@ -144,14 +144,14 @@ export async function maybeSendMiddayBriefing(force = false): Promise<boolean> {
   if (mode === "paper") {
     const s = await readPaperState();
     const openPos = s.positions.filter(p => p.netQty !== 0).length;
-    const realized = s.positions.reduce((sum, p) => sum + (p.realized ?? 0), 0);
+    const dayRealized = s.dayRealized ?? 0;        // today only — resets at IST midnight rollover
     const unreal = s.positions.reduce((sum, p) => sum + (p.netQty !== 0 ? (p.ltp - p.netAvg) * p.netQty : 0), 0)
                  + s.holdings.reduce((sum, h) => sum + (h.pl ?? 0), 0);
     const startCash = s.dayStartCash ?? s.startingCash;
-    const pnlPct = startCash > 0 ? ((realized + unreal) / startCash) * 100 : 0;
+    const pnlPct = startCash > 0 ? ((dayRealized + unreal) / startCash) * 100 : 0;
     lines.push(`💼 Paper:`);
     lines.push(`  • Cash: ${inr(s.cash)} · Open positions: ${openPos}`);
-    lines.push(`  • Realized: ${realized >= 0 ? "+" : ""}${inr(realized)} · Unrealized: ${unreal >= 0 ? "+" : ""}${inr(unreal)}`);
+    lines.push(`  • Today realized: ${dayRealized >= 0 ? "+" : ""}${inr(dayRealized)} · Open unreal: ${unreal >= 0 ? "+" : ""}${inr(unreal)}`);
     lines.push(`  • Day P&L: ${pnlPct >= 0 ? "+" : ""}${pnlPct.toFixed(2)}%`);
   }
   lines.push(``);
@@ -211,15 +211,21 @@ export async function maybeSendEodBriefing(force = false): Promise<boolean> {
 
   if (mode === "paper") {
     const s = await readPaperState();
-    const realized = s.positions.reduce((sum, p) => sum + (p.realized ?? 0), 0);
+    const dayRealized = s.dayRealized ?? 0;          // today's closes only
+    const lifetimeRealized = s.positions.reduce((sum, p) => sum + (p.realized ?? 0), 0);
     const unreal   = s.positions.reduce((sum, p) => sum + (p.netQty !== 0 ? (p.ltp - p.netAvg) * p.netQty : 0), 0)
                    + s.holdings.reduce((sum, h) => sum + (h.pl ?? 0), 0);
+    const dayCosts = s.dayCosts ?? 0;
     const totalCosts = s.totalCosts ?? 0;
+    const dayStartCash = s.dayStartCash ?? s.startingCash;
+    const dayPnL = dayRealized + unreal;
+    const dayPnLPct = dayStartCash > 0 ? (dayPnL / dayStartCash) * 100 : 0;
     lines.push(`💰 Paper P&L:`);
-    lines.push(`  • Realized: ${realized >= 0 ? "+" : ""}${inr(realized)}`);
-    lines.push(`  • Unrealized (open): ${unreal >= 0 ? "+" : ""}${inr(unreal)}`);
-    lines.push(`  • Cumulative costs (STT/brokerage/etc): ${inr(totalCosts)}`);
-    lines.push(`  • Cash: ${inr(s.cash)} / Start of day: ${inr(s.dayStartCash ?? s.startingCash)}`);
+    lines.push(`  • Today realized: ${dayRealized >= 0 ? "+" : ""}${inr(dayRealized)}  (lifetime ${lifetimeRealized >= 0 ? "+" : ""}${inr(lifetimeRealized)})`);
+    lines.push(`  • Open unrealized: ${unreal >= 0 ? "+" : ""}${inr(unreal)}`);
+    lines.push(`  • *Day P&L: ${dayPnL >= 0 ? "+" : ""}${inr(dayPnL)} (${dayPnLPct >= 0 ? "+" : ""}${dayPnLPct.toFixed(2)}%)*`);
+    lines.push(`  • Costs today: ${inr(dayCosts)}  (cumulative ${inr(totalCosts)})`);
+    lines.push(`  • Cash: ${inr(s.cash)} / Day start: ${inr(dayStartCash)}`);
   }
   lines.push(``);
 
