@@ -8,6 +8,8 @@ import { startAutoFollowMonitor } from "./auto-follow-monitor";
 import { maybeSendMorningBriefing, maybeSendMiddayBriefing, maybeSendEodBriefing, maybeSendWeeklyDigest } from "./daily-briefing";
 import { maybeRunIntradaySquareoff } from "./intraday-squareoff";
 import { maybeRunMaxHoldExit } from "./max-hold-exit";
+import { matchPendingOrders } from "@/lib/broker/paper/engine";
+import { activeBroker } from "@/lib/broker";
 import { promises as fs } from "fs";
 import path from "path";
 
@@ -78,6 +80,20 @@ async function tick() {
   // CNC swing positions carry indefinitely and the supposed edge is fictional.
   if (isMarketOpen()) {
     maybeRunMaxHoldExit().catch(e => console.warn("[max-hold-exit] failed:", (e as Error).message));
+  }
+
+  // Paper matcher refresh — keeps p.ltp current AND fires bracket SL/Target legs.
+  // Without this, paper engine's matcher only runs when the UI loads /positions etc.
+  // In headless / EOD-only mode, brackets silently never fire and unrealized P&L
+  // is forever stuck at entry price. Critical for autonomous operation.
+  // Only triggers on paper mode (live brokers manage their own bracket fills).
+  // Bug found 2026-05-07 EOD: 10 paper positions had ltp == netAvg for hours.
+  if (isMarketOpen()) {
+    activeBroker().then(broker => {
+      if (broker.id === "paper") {
+        matchPendingOrders().catch(e => console.warn("[paper-matcher] failed:", (e as Error).message));
+      }
+    }).catch(() => {});
   }
 
   try {
