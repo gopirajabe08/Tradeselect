@@ -27,13 +27,55 @@
  */
 import type { SymbolSnapshot } from "./strategies/types";
 import { fetchDailyBars, type HistoricalBar } from "./historical";
+import { promises as fs } from "fs";
+import path from "path";
 
 const CACHE_TTL_MS = 6 * 60 * 60 * 1000;            // 6 hours — daily bars are stable intraday
 const MAX_CONCURRENT_FETCHES = 8;
 const BARS_LOOKBACK_DAYS_TO_FETCH = "1mo";          // ~25 trading days, enough for 20-day avg + NR7
+const DISK_CACHE_FILE = path.join(process.cwd(), ".local-data", "live-bars-cache.json");
+const DISK_FLUSH_INTERVAL_MS = 60_000;              // flush dirty cache to disk at most once per minute
 
 type CachedBars = { bars: HistoricalBar[]; fetchedAt: number };
 const cache = new Map<string, CachedBars>();
+let cacheLoadedFromDisk = false;
+let cacheDirty = false;
+let lastFlushAt = 0;
+
+async function loadCacheFromDisk() {
+  if (cacheLoadedFromDisk) return;
+  cacheLoadedFromDisk = true;
+  try {
+    const raw = await fs.readFile(DISK_CACHE_FILE, "utf8");
+    const parsed = JSON.parse(raw) as Record<string, CachedBars>;
+    const now = Date.now();
+    let restored = 0;
+    for (const [sym, entry] of Object.entries(parsed)) {
+      if (now - entry.fetchedAt < CACHE_TTL_MS) {
+        cache.set(sym, entry);
+        restored += 1;
+      }
+    }
+    if (restored > 0) console.log(`[live-bars] restored ${restored} cached symbols from disk (skipped expired)`);
+  } catch {
+    // No file or corrupt — start fresh, no harm.
+  }
+}
+
+async function flushCacheToDisk() {
+  if (!cacheDirty) return;
+  if (Date.now() - lastFlushAt < DISK_FLUSH_INTERVAL_MS) return;
+  cacheDirty = false;
+  lastFlushAt = Date.now();
+  try {
+    await fs.mkdir(path.dirname(DISK_CACHE_FILE), { recursive: true });
+    const obj: Record<string, CachedBars> = {};
+    for (const [sym, entry] of cache.entries()) obj[sym] = entry;
+    await fs.writeFile(DISK_CACHE_FILE, JSON.stringify(obj), { mode: 0o600 });
+  } catch (e) {
+    console.warn("[live-bars] disk flush failed:", (e as Error).message);
+  }
+}
 
 /** Compute enrichment fields from bar history and mutate the snapshot in place. */
 function applyEnrichment(snap: SymbolSnapshot, bars: HistoricalBar[]): void {
@@ -73,10 +115,12 @@ async function fetchBarsCached(symbol: string): Promise<HistoricalBar[]> {
   try {
     const bars = await fetchDailyBars(symbol, BARS_LOOKBACK_DAYS_TO_FETCH);
     cache.set(symbol, { bars, fetchedAt: now });
+    cacheDirty = true;
     return bars;
   } catch {
     // Negative cache for short period to avoid hammering the failed source
     cache.set(symbol, { bars: [], fetchedAt: now - CACHE_TTL_MS + 30 * 60 * 1000 });
+    cacheDirty = true;
     return [];
   }
 }
@@ -103,6 +147,7 @@ async function pmap<T, R>(items: T[], limit: number, fn: (x: T) => Promise<R>): 
  */
 export async function enrichWithBarStats(snapshots: SymbolSnapshot[]): Promise<SymbolSnapshot[]> {
   if (snapshots.length === 0) return snapshots;
+  await loadCacheFromDisk();
   const t0 = Date.now();
   let cacheHits = 0;
   let fetched = 0;
@@ -119,6 +164,9 @@ export async function enrichWithBarStats(snapshots: SymbolSnapshot[]): Promise<S
     applyEnrichment(snap, bars);
   });
 
+  // Persist updated cache to disk so a tsapp restart doesn't re-fetch all 50 stocks.
+  flushCacheToDisk().catch(() => {});
+
   const elapsedMs = Date.now() - t0;
   console.log(`[live-bars] enriched ${snapshots.length} snapshots in ${elapsedMs}ms (cache hits: ${cacheHits}, network: ${fetched})`);
   return snapshots;
@@ -127,4 +175,6 @@ export async function enrichWithBarStats(snapshots: SymbolSnapshot[]): Promise<S
 /** Test-only: clear the cache. */
 export function _clearLiveBarsCache(): void {
   cache.clear();
+  cacheLoadedFromDisk = true;  // skip disk-load on next call to keep tests deterministic
+  cacheDirty = false;
 }

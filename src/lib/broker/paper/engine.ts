@@ -5,6 +5,7 @@ import type {
 import { readState, writeState, newOrderId, ensureDayStart, type PaperOrder, type PaperPosition, type PaperState } from "./store";
 import { getLtp } from "./quotes";
 import { computeCosts, inferSegment } from "@/lib/risk/costs";
+import { appendAudit } from "@/lib/broker/audit";
 
 // ─── Slippage model ───
 // Real Indian equity MARKET orders fill at ASK on BUY, BID on SELL — not at LTP.
@@ -211,11 +212,25 @@ function applyFill(s: PaperState, o: PaperOrder, fillQty: number, fillPrice: num
 
   p.ltp = fillPrice;
 
-  // Clear position attribution when netQty returns to flat — fresh attribution on next opening fill.
-  if (p.netQty === 0) {
-    p.strategyId = undefined;
+  // Stamp close metadata when netQty returns to flat. PRESERVE strategyId for per-strategy
+  // analysis (previously cleared — broke analysis after 2026-05-07). Reset openedAt/maxHoldDays
+  // so a fresh entry on same symbol re-stamps cleanly.
+  if (p.netQty === 0 && p.openedAt != null) {
+    p.closedAt = Date.now();
+    // Closing price = average of the SELLING side (for long-closes) or BUYING side (short-closes).
+    p.closedPrice = (p.buyQty > p.sellQty) ? p.buyAvg : p.sellAvg;
+    // Reason inferred from the closing order's tag/type — caller of applyFill can set later if needed.
+    if (!p.closedReason) {
+      const tag = String(o.orderTag ?? "");
+      if (tag.endsWith("-s")) p.closedReason = "stop";
+      else if (tag.endsWith("-t")) p.closedReason = "target";
+      else if (tag.startsWith("sqof-")) p.closedReason = "intraday-squareoff";
+      else if (tag.startsWith("mhx-")) p.closedReason = "max-hold-exit";
+      else p.closedReason = "manual";
+    }
     p.openedAt = undefined;
     p.maxHoldDays = undefined;
+    // strategyId persists for analysis.
   }
 
   // CNC BUY → contribute to holdings
@@ -310,12 +325,23 @@ async function doMatchRefresh(): Promise<void> {
         o.status = 3;
         o.message = `Rejected at trigger: ${guard.reason}`;
       } else {
+        const triggerCrossedAt = Date.now();
         applyFill(s, o, o.qty, fillPrice);
         o.status = 2;
         o.filledQty = o.qty;
         o.tradedPrice = fillPrice;
-        o.filledAt = Date.now();
+        o.filledAt = triggerCrossedAt;
         o.message = `Paper fill @ ${fillPrice.toFixed(2)}`;
+        // Audit bracket fills so we can reconstruct trigger-vs-fill timing in analysis.
+        // Without this, the matcher-delay-bug (fixed 2026-05-08) repeats invisibly if it ever returns.
+        appendAudit({
+          at: new Date(triggerCrossedAt).toISOString(),
+          broker: "paper",
+          action: "place",
+          input: { symbol: o.symbol, side: o.side, qty: o.qty, type: o.type, productType: o.productType, orderTag: o.orderTag, ocoGroup: o.ocoGroup, stopPrice: o.stopPrice, limitPrice: o.limitPrice },
+          result: "ok",
+          resultDetail: { source: "paper-matcher", id: o.id, fillPrice, triggerMark: mark, message: o.message },
+        }).catch(() => {});
         // OCO: when one leg of a bracket fills, cancel any open sibling legs.
         if (o.ocoGroup) {
           for (const sib of s.orders) {

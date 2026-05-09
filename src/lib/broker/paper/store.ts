@@ -55,12 +55,19 @@ export type PaperPosition = {
   sellAvg: number;
   realized: number;          // P&L locked in
   ltp: number;               // last seen market price
-  /** Strategy that opened this position. Set on the opening fill; cleared when netQty returns to 0. */
+  /** Strategy that opened this position. Set on the opening fill; PRESERVED across close
+   *  for per-strategy P&L analysis (was cleared previously, broke analysis — fix 2026-05-09). */
   strategyId?: string;
-  /** ms timestamp of the fill that opened the current direction. Used by max-hold-exit. */
+  /** ms timestamp of the fill that opened the current direction. Used by max-hold-exit + analysis. */
   openedAt?: number;
   /** Max holding days frozen at open time. Max-hold-exit closes the position when (now - openedAt) ≥ this value. */
   maxHoldDays?: number;
+  /** ms timestamp when netQty returned to 0 (position fully closed). For per-period P&L attribution. */
+  closedAt?: number;
+  /** Average exit price (sellAvg for long-closes, buyAvg for short-closes). Computed at close. */
+  closedPrice?: number;
+  /** How the position closed: "target" / "stop" / "max-hold-exit" / "intraday-squareoff" / "manual" */
+  closedReason?: string;
 };
 
 export type PaperHolding = {
