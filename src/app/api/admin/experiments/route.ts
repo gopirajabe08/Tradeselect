@@ -2,6 +2,13 @@ import { NextResponse } from "next/server";
 import { runBacktest } from "@/lib/calls/backtest";
 import { STRATEGIES } from "@/lib/calls/strategies";
 import { notify } from "@/lib/notify/telegram";
+import { readOverrides, writeOverrides } from "@/lib/calls/strategy-overrides";
+import {
+  bridgeExperimentsToOverrides,
+  applyBridgeDecisions,
+  formatBridgeDecisions,
+  type ExperimentCandidate,
+} from "@/lib/calls/experiments-bridge";
 import { promises as fs } from "fs";
 import path from "path";
 
@@ -88,6 +95,27 @@ export async function POST() {
   const top3 = allCandidates.slice(0, 3);
   const positiveCount = allCandidates.filter(c => c.sharpeNet > 0).length;
 
+  // L2 — bridge backtest evidence into strategy-overrides (bounded promote-only).
+  const overridesFile = await readOverrides();
+  const bridgeCandidates: ExperimentCandidate[] = allCandidates.map(c => ({
+    strategy: c.strategy,
+    holdDays: c.holdDays,
+    range: c.range,
+    trades: c.trades,
+    winRate: c.winRate,
+    sharpeNet: c.sharpeNet,
+    avgReturnNet: c.avgReturnNet,
+  }));
+  const bridgeDecisions = bridgeExperimentsToOverrides({
+    candidates: bridgeCandidates,
+    existingOverrides: overridesFile.overrides,
+    strategies: STRATEGIES,
+  });
+  const { next: nextOverrides, promoted } = applyBridgeDecisions(overridesFile.overrides, bridgeDecisions);
+  if (promoted > 0) {
+    await writeOverrides({ updatedAt: new Date().toISOString(), overrides: nextOverrides });
+  }
+
   // Write Markdown report
   const md: string[] = [];
   md.push(`# Phase 1 Experiment Report — ${today}`);
@@ -161,6 +189,8 @@ export async function POST() {
   } else {
     telegramLines.push(`🟢 ${positiveCount} positive-Sharpe candidate(s). Review report:`);
   }
+  const bridgeBlock = formatBridgeDecisions(bridgeDecisions);
+  if (bridgeBlock) telegramLines.push(bridgeBlock);
   telegramLines.push(``);
   telegramLines.push(`Full report: \`${reportPath}\``);
 
@@ -178,6 +208,8 @@ export async function POST() {
     candidatesEvaluated: allCandidates.length,
     positiveNetSharpe: positiveCount,
     top3,
+    autoPromoted: promoted,
+    bridgeDecisions,
     reportPath,
   });
 }
