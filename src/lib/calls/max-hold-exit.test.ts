@@ -92,3 +92,43 @@ describe("findExpiredPositions — the gate that decides if max-hold-exit fires"
     expect(expired).toHaveLength(0);
   });
 });
+
+describe("marketable-LIMIT price derivation — APOLLOTYRE-class bug fix (2026-05-11)", () => {
+  // Pure inline replication of the limitPrice math in max-hold-exit.ts so we can
+  // assert its invariants without spinning up the paper engine.
+  const SLIP_TOLERANCE = 0.10;
+  function derive(flatSide: 1 | -1, ltp: number, netAvg: number): number | null {
+    const refPrice = ltp > 0 ? ltp : netAvg;
+    if (refPrice <= 0) return null;
+    return flatSide === -1
+      ? Math.max(0.05, refPrice * (1 - SLIP_TOLERANCE))
+      : refPrice * (1 + SLIP_TOLERANCE);
+  }
+
+  it("SELL-to-flatten uses an aggressively-low limit so it always crosses (long position)", () => {
+    const lim = derive(-1, 520, 500)!;
+    expect(lim).toBeCloseTo(520 * 0.9, 2);
+    expect(lim).toBeLessThan(520);
+  });
+
+  it("BUY-to-flatten uses an aggressively-high limit (short cover)", () => {
+    const lim = derive(1, 520, 500)!;
+    expect(lim).toBeCloseTo(520 * 1.1, 2);
+    expect(lim).toBeGreaterThan(520);
+  });
+
+  it("falls back to netAvg when stored ltp is zero (matcher hasn't quoted yet)", () => {
+    const lim = derive(-1, 0, 500)!;
+    expect(lim).toBeCloseTo(500 * 0.9, 2);
+  });
+
+  it("returns null when neither ltp nor netAvg is positive (the only manual-intervention case)", () => {
+    expect(derive(-1, 0, 0)).toBeNull();
+    expect(derive(-1, -5, 0)).toBeNull();
+  });
+
+  it("never returns a limit below the exchange minimum tick (₹0.05 floor)", () => {
+    const lim = derive(-1, 0.01, 0.01)!;
+    expect(lim).toBeGreaterThanOrEqual(0.05);
+  });
+});

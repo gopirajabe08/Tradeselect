@@ -85,23 +85,44 @@ export async function maybeRunMaxHoldExit(opts: { forceOffHours?: boolean } = {}
   }
   if (cancelled > 0) await writeState(s);
 
-  // 2. Flatten each expired position
+  // 2. Flatten each expired position with a marketable LIMIT.
+  //    MARKET orders failed in the wild (APOLLOTYRE 2026-05-11) when NSE quote-equity
+  //    returned null for the symbol — paper engine had no price to fill at, so the
+  //    position stayed past horizon for days. Marketable LIMIT solves this two ways:
+  //      a) If getLtp succeeds, paper engine fills at LTP (LIMIT always crosses since
+  //         the limit is aggressive in the right direction).
+  //      b) If getLtp returns null, paper engine's LIMIT-fallback branch fills at the
+  //         passed limitPrice — derived from the position's own stored ltp/netAvg, so
+  //         there's always a sane reference even when the live feed flaps.
   for (const { position: p, ageDays } of expired) {
     const flatSide: 1 | -1 = p.netQty > 0 ? -1 : 1;
     const qty = Math.abs(p.netQty);
     const tag = `mhx-${p.symbol.replace(/[^a-z0-9]/gi, "").slice(-12)}`;
+
+    const refPrice = p.ltp > 0 ? p.ltp : p.netAvg;
+    if (refPrice <= 0) {
+      notify(`⚠️ *max-hold-exit cannot flatten* ${p.symbol} — no reference price (ltp=${p.ltp}, netAvg=${p.netAvg}). Manual intervention required.`).catch(() => {});
+      continue;
+    }
+    const SLIP_TOLERANCE = 0.10; // 10% — wide enough to guarantee marketability without ever blocking a forced exit
+    const limitPrice = flatSide === -1
+      ? Math.max(0.05, refPrice * (1 - SLIP_TOLERANCE))
+      : refPrice * (1 + SLIP_TOLERANCE);
+
     const r = await placeOrderInternal({
       symbol: p.symbol,
       qty,
-      type: 2, // MARKET
+      type: 1, // LIMIT (marketable)
       side: flatSide,
       productType: p.productType,
-      limitPrice: 0, stopPrice: 0, validity: "DAY",
+      limitPrice,
+      stopPrice: 0,
+      validity: "DAY",
       orderTag: tag,
     }, { source: "max-hold-exit", forceOffHours: opts.forceOffHours });
-    // Critical guard — paper engine returns ok=true even when canAfford rejects MARKET fill
+    // Critical guard — paper engine returns ok=true even when canAfford rejects fill
     // (status=3 internally, message starts with "Rejected: ..."). Without this check, the
-    // position stays open past horizon and the next tick fires the same MARKET, same rejection,
+    // position stays open past horizon and the next tick fires the same, same rejection,
     // forever. Adversarial finding ADV-11 (2026-04-30 360-review).
     const filled = r.ok && !(r.message && /^Rejected/i.test(r.message));
     if (filled) {
