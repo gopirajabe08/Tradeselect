@@ -117,25 +117,28 @@ function initial(): PaperState {
   };
 }
 
-// Per-path cache. Each instrument's paper account has its own cache entry.
-// Key = absolute file path. Value = { state, cachedAt }.
-const cacheByPath = new Map<string, { state: PaperState; cachedAt: number }>();
-const CACHE_MS = 500;
-
 async function ensureDir(dir: string) {
   try { await fs.mkdir(dir, { recursive: true }); } catch {}
 }
 
 /**
  * Read paper state for a specific instrument's path.
- * `relPath` comes from `InstrumentConfig.paperStatePath` (e.g., "paper-mcx/state.json").
- * Omitted = legacy single-account path.
+ * Always reads fresh from disk (no caching). Disk reads are ~5ms for a ~50KB state file —
+ * cheap enough that we trade them for correctness.
+ *
+ * Why no cache: previously cached state by REFERENCE for 500ms. Two concurrent code paths
+ * (e.g. auto-follow placeOrder + matcher bracket-fire) could read the same reference,
+ * mutate independently, and the later `writeState` would clobber the earlier mutations
+ * because both wrote the SAME ref but only the last one's content survived if they had
+ * diverged via separate fresh reads in the meantime. Surfaced 2026-05-13 when NIVABUPA's
+ * BUY entry order was lost — position.buyQty=0, lastOrderSeq shifted by 1, phantom short
+ * created when the bracket target fired.
+ *
+ * Callers that need atomic read-mutate-write must use `withStateMutation` (below) which
+ * serializes via a module-level lock. Read-only callers can use `readStateAt` directly.
  */
 export async function readStateAt(relPath?: string): Promise<PaperState> {
   const { dir, file } = resolveStatePath(relPath);
-  const now = Date.now();
-  const cached = cacheByPath.get(file);
-  if (cached && now - cached.cachedAt < CACHE_MS) return cached.state;
   await ensureDir(dir);
   let state: PaperState;
   try {
@@ -145,7 +148,6 @@ export async function readStateAt(relPath?: string): Promise<PaperState> {
     state = initial();
     await writeStateAt(state, relPath);
   }
-  cacheByPath.set(file, { state, cachedAt: now });
   return state;
 }
 
@@ -154,7 +156,41 @@ export async function writeStateAt(s: PaperState, relPath?: string): Promise<voi
   const { dir, file } = resolveStatePath(relPath);
   await ensureDir(dir);
   await fs.writeFile(file, JSON.stringify(s, null, 2), { mode: 0o600 });
-  cacheByPath.set(file, { state: s, cachedAt: Date.now() });
+}
+
+/**
+ * Serialized read-mutate-write helper. The mutator gets a FRESH state snapshot,
+ * mutates it in place, and the wrapper writes it back — all under a per-path mutex.
+ *
+ * Use this for ANY code path that needs to mutate paper state. Examples:
+ *   await withStateMutation(async (s) => { s.orders.push(order); applyFill(s, ...); });
+ *
+ * Why: prevents the race where two concurrent paths read the same disk state, each
+ * computes a divergent mutation, and the later writer overwrites the earlier writer's
+ * changes. See readStateAt for the NIVABUPA-class loss this fixes.
+ */
+const writeLocks = new Map<string, Promise<unknown>>();
+
+export async function withStateMutation<T>(
+  mutator: (s: PaperState) => T | Promise<T>,
+  relPath?: string,
+): Promise<T> {
+  const { file } = resolveStatePath(relPath);
+  const prev = writeLocks.get(file) ?? Promise.resolve();
+  let releaseFn: () => void = () => {};
+  const next = new Promise<void>(resolve => { releaseFn = resolve; });
+  writeLocks.set(file, next);
+  try {
+    await prev;
+    const s = await readStateAt(relPath);
+    const result = await mutator(s);
+    await writeStateAt(s, relPath);
+    return result;
+  } finally {
+    releaseFn();
+    // Clean up the map entry if no further awaiters chained on — keeps the map bounded.
+    if (writeLocks.get(file) === next) writeLocks.delete(file);
+  }
 }
 
 /** Legacy back-compat — reads/writes equity-intraday default path. */

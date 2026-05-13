@@ -21,7 +21,7 @@
  * Live mode: same flow against the live broker; uses position metadata from auto-follow
  * audit if the broker doesn't surface openedAt natively (deferred — paper-first).
  */
-import { readState, writeState, type PaperPosition } from "@/lib/broker/paper/store";
+import { readState, withStateMutation, type PaperPosition } from "@/lib/broker/paper/store";
 import { placeOrderInternal } from "@/lib/broker/place-internal";
 import { activeBroker } from "@/lib/broker";
 import { appendAudit } from "@/lib/broker/audit";
@@ -71,19 +71,22 @@ export async function maybeRunMaxHoldExit(opts: { forceOffHours?: boolean } = {}
   }
 
   let closed = 0;
-  let cancelled = 0;
   const details: MaxHoldExitResult["details"] = [];
 
-  // 1. Cancel open bracket legs for expiring positions
+  // 1. Cancel open bracket legs for expiring positions (atomic — under the state mutex
+  //    so a concurrent matcher can't fire one of these legs while we're cancelling).
   const expiringSymbols = new Set(expired.map(e => e.position.symbol));
-  for (const o of s.orders) {
-    if ((o.status === 6 || o.status === 4) && expiringSymbols.has(o.symbol)) {
-      o.status = 1;
-      o.message = "Cancelled by max-hold-exit";
-      cancelled += 1;
+  const cancelled = await withStateMutation(async (state) => {
+    let n = 0;
+    for (const o of state.orders) {
+      if ((o.status === 6 || o.status === 4) && expiringSymbols.has(o.symbol)) {
+        o.status = 1;
+        o.message = "Cancelled by max-hold-exit";
+        n += 1;
+      }
     }
-  }
-  if (cancelled > 0) await writeState(s);
+    return n;
+  });
 
   // 2. Flatten each expired position with a marketable LIMIT.
   //    MARKET orders failed in the wild (APOLLOTYRE 2026-05-11) when NSE quote-equity

@@ -19,7 +19,7 @@
  * For live mode: same flow, but order goes to Tradejini. (Tradejini already
  * auto-squares server-side, so this is a belt-and-suspenders for race conditions.)
  */
-import { readState, writeState } from "@/lib/broker/paper/store";
+import { readState, withStateMutation } from "@/lib/broker/paper/store";
 import { placeOrderInternal } from "@/lib/broker/place-internal";
 import { activeBroker } from "@/lib/broker";
 import { appendAudit } from "@/lib/broker/audit";
@@ -72,19 +72,22 @@ export async function maybeRunIntradaySquareoff(force = false): Promise<{ ran: b
   let cancelled = 0;
 
   if (broker.id === "paper") {
-    const s = await readState();
-
-    // 1. Cancel open bracket legs for INTRADAY products
-    for (const o of s.orders) {
-      if ((o.status === 6 || o.status === 4) && INTRADAY_PRODUCTS.has(o.productType)) {
-        o.status = 1;
-        o.message = "Cancelled by intraday squareoff";
-        cancelled += 1;
+    // 1. Cancel open bracket legs for INTRADAY products — atomic under state mutex.
+    cancelled = await withStateMutation(async (state) => {
+      let n = 0;
+      for (const o of state.orders) {
+        if ((o.status === 6 || o.status === 4) && INTRADAY_PRODUCTS.has(o.productType)) {
+          o.status = 1;
+          o.message = "Cancelled by intraday squareoff";
+          n += 1;
+        }
       }
-    }
-    if (cancelled > 0) await writeState(s);
+      return n;
+    });
 
-    // 2. Flatten each non-zero INTRADAY position with opposing MARKET
+    // 2. Flatten each non-zero INTRADAY position with opposing MARKET.
+    //    Read state fresh after the cancel batch so we have current positions.
+    const s = await readState();
     const positions = s.positions.filter(p => p.netQty !== 0 && INTRADAY_PRODUCTS.has(p.productType));
     for (const p of positions) {
       const flatSide: 1 | -1 = p.netQty > 0 ? -1 : 1;  // long → SELL, short → BUY

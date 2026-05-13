@@ -1,4 +1,4 @@
-import { ensureDayStart, readState as readPaperState, writeState as writePaperState } from "@/lib/broker/paper/store";
+import { ensureDayStart, readState as readPaperState, withStateMutation } from "@/lib/broker/paper/store";
 import { readAudit } from "@/lib/broker/audit";
 import { readRiskConfig } from "./sizing";
 
@@ -45,10 +45,11 @@ export async function readDailyPnL(brokerMode: string): Promise<DailyPnLReading>
     };
   }
 
-  const s = await readPaperState();
-  // Roll forward day-start stamp if needed; persist if it changed.
-  const rolled = ensureDayStart(s);
-  if (rolled) await writePaperState(s);
+  // Roll forward day-start stamp under the state mutex so it can't race a fill.
+  const s = await withStateMutation(async (state) => {
+    ensureDayStart(state);
+    return state;
+  });
 
   const dayStartCash = s.dayStartCash ?? s.cash;
   // CORRECT P&L semantics:

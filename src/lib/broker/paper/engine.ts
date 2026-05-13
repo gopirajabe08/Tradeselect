@@ -2,7 +2,7 @@ import type {
   FyersProfile, FyersFunds, FyersHolding, FyersPosition, FyersOrder, FyersQuoteRow,
   PlaceOrderInput,
 } from "../types";
-import { readState, writeState, newOrderId, ensureDayStart, type PaperOrder, type PaperPosition, type PaperState } from "./store";
+import { readState, writeState, withStateMutation, newOrderId, ensureDayStart, type PaperOrder, type PaperPosition, type PaperState } from "./store";
 import { getLtp } from "./quotes";
 import { computeCosts, inferSegment } from "@/lib/risk/costs";
 import { appendAudit } from "@/lib/broker/audit";
@@ -284,12 +284,14 @@ let lastMatchAt = 0;
 const MATCH_TTL_MS = 10_000;
 
 async function doMatchRefresh(): Promise<void> {
-  const s = await readState();
-  const open = s.orders.filter(o => o.status === 6 || o.status === 4);
+  // Phase 1 (read-only): fetch LTPs OUTSIDE the lock. NSE round-trips ~300ms — we don't
+  // want to hold the write lock that long. Phase 2 (mutate-under-lock) re-reads state to
+  // get a fresh snapshot, then applies fills atomically.
+  const sSnapshot = await readState();
   const symbols = Array.from(new Set<string>([
-    ...open.map(o => o.symbol),
-    ...s.positions.map(p => p.symbol),
-    ...s.holdings.map(h => h.symbol),
+    ...sSnapshot.orders.filter(o => o.status === 6 || o.status === 4).map(o => o.symbol),
+    ...sSnapshot.positions.map(p => p.symbol),
+    ...sSnapshot.holdings.map(h => h.symbol),
   ]));
   if (symbols.length === 0) { lastMatchAt = Date.now(); return; }
 
@@ -297,6 +299,9 @@ async function doMatchRefresh(): Promise<void> {
   const ltpMap = new Map<string, number | null>();
   for (let i = 0; i < symbols.length; i++) ltpMap.set(symbols[i], ltps[i]);
 
+  await withStateMutation(async (s) => {
+  // Re-read open orders under the lock (they may have moved during the LTP fetch).
+  const open = s.orders.filter(o => o.status === 6 || o.status === 4);
   let mutated = false;
 
   for (const o of open) {
@@ -371,8 +376,11 @@ async function doMatchRefresh(): Promise<void> {
       mutated = true;
     }
   }
-
-  if (mutated) await writeState(s);
+  // withStateMutation always writes — `mutated` retained for symmetry/observability but
+  // wrapper handles persistence. Returning early without write would lose any partial
+  // mutations the caller may not have tracked; cheap to always re-serialize state.
+  void mutated;
+  });
   lastMatchAt = Date.now();
 }
 
@@ -500,7 +508,9 @@ export const PaperBroker = {
   },
 
   async placeOrder(o: PlaceOrderInput): Promise<{ id: string; message?: string }> {
-    const state = await readState();
+    // Fetch LTP outside the lock — 300ms NSE round-trip shouldn't block other writes.
+    const ltpForOrder = (o.type === 2 || o.type === 1) ? await getLtp(o.symbol).catch(() => null) : null;
+    return withStateMutation(async (state) => {
     const now = Date.now();
     const id = newOrderId(state);
     const order: PaperOrder = {
@@ -525,7 +535,7 @@ export const PaperBroker = {
 
     // MARKET → fill immediately at NSE LTP + slippage (BUY pays ask, SELL gets bid).
     if (o.type === 2) {
-      const ltp = await getLtp(o.symbol);
+      const ltp = ltpForOrder;
       const rawPrice = ltp ?? (order.limitPrice > 0 ? order.limitPrice : null);
       const fillPrice = rawPrice == null ? null : applySlippage(rawPrice, o.side, true);
       if (fillPrice == null) {
@@ -548,7 +558,7 @@ export const PaperBroker = {
     }
     // LIMIT → check if already crossed
     else if (o.type === 1) {
-      const ltp = await getLtp(o.symbol);
+      const ltp = ltpForOrder;
       // Upfront affordability check against the worst-case fill price.
       const worstPrice = ltp != null
         ? (o.side === 1 ? Math.min(ltp, order.limitPrice) : Math.max(ltp, order.limitPrice))
@@ -591,18 +601,18 @@ export const PaperBroker = {
     }
 
     state.orders.push(order);
-    await writeState(state);
     return { id, message: order.message };
+    });
   },
 
   async cancelOrder(orderId: string): Promise<{ id: string }> {
-    const state = await readState();
-    const o = state.orders.find(x => x.id === orderId);
-    if (!o) throw new Error(`Order ${orderId} not found`);
-    if (o.status !== 6 && o.status !== 4) throw new Error(`Order ${orderId} is not open`);
-    o.status = 1;
-    o.message = "Cancelled by user";
-    await writeState(state);
-    return { id: orderId };
+    return withStateMutation(async (state) => {
+      const o = state.orders.find(x => x.id === orderId);
+      if (!o) throw new Error(`Order ${orderId} not found`);
+      if (o.status !== 6 && o.status !== 4) throw new Error(`Order ${orderId} is not open`);
+      o.status = 1;
+      o.message = "Cancelled by user";
+      return { id: orderId };
+    });
   },
 };
